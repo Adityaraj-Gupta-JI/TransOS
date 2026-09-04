@@ -1,16 +1,67 @@
-# TransOS: Cross-Platform Environment State & Configuration Migration Engine
+<div align="center">
 
-TransOS is a zero-agent, high-performance command-line interface (CLI) tool designed to automate the cross-platform extraction and injection of user-space environment configurations, system paths, and shell parameters between heterogeneous operating systems (Windows and Linux).
+# TransOS
+
+### Cross-Platform Environment State & Configuration Migration Engine
+
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-blue?style=for-the-badge)](#)
+[![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)](#)
+[![Schema Version](https://img.shields.io/badge/Schema-v7-orange?style=for-the-badge)](#)
+
+</div>
+
+---
+
+**TransOS** is a zero-agent, high-performance command-line interface (CLI) tool designed to automate the cross-platform extraction and injection of user-space environment configurations, system paths, and shell parameters between heterogeneous operating systems (Windows and Linux).
+
+---
+
+## Table of Contents
+
+- [Technical Architecture](#technical-architecture)
+- [Project Structure](#project-structure)
+- [Installation & Setup](#installation--setup)
+- [Usage Guide](#usage-guide)
+- [Academic Project Context](#academic-project-context)
+- [License](#license)
 
 ---
 
 ## Technical Architecture
 
-TransOS decouples state extraction from state injection to eliminate hypervisor dependencies and persistent background daemons:
+TransOS decouples state extraction from state injection to eliminate hypervisor dependencies and persistent background daemons.
 
-1. **Extraction Phase (`transos extract`):** Gathers host-level environment variables, user configuration paths, and theme parameters, serializing them into a strictly typed, schema-validated JSON payload (`migration_profile.json`).
-2. **Transformation Engine:** Parses shell path formats (normalizing Windows `\` paths to POSIX `/` standard equivalents) and verifies data integrity via JSON Schema v7 specifications.
-3. **Injection Phase (`transos inject`):** Translates the payload parameters directly into Linux session structures (such as environment configuration files and desktop properties) backed by a Write-Ahead Log (WAL) transactional rollback safety layer.
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### 🔍 Extraction Phase
+`transos extract`
+
+Gathers host-level environment variables, user configuration paths, and system parameters, serializing them into a strictly typed, schema-validated JSON payload (`migration_profile.json`).
+
+</td>
+<td width="33%" valign="top">
+
+### 🌳 AST Path Translation Engine
+`internal/translator`
+
+Parses Windows path primitives (`C:\Users\...`, `%APPDATA%`, multi-path string variables separated by `;`) into Abstract Syntax Trees (AST) and normalizes them into POSIX-compliant Linux paths (`~/.config/...`, path separators `:`) dynamically.
+
+</td>
+<td width="33%" valign="top">
+
+### 💾 Injection & Persistence Phase
+`transos inject`
+
+Translates payload parameters directly into Linux session structures (`target_output/transos_env.conf`) backed by a Write-Ahead Log (WAL) transactional rollback safety layer.
+
+</td>
+</tr>
+</table>
+
+> **Note:** All transformations are performed entirely in user-space — no hypervisor, kernel module, or background daemon is required at any stage of the pipeline.
 
 ---
 
@@ -25,32 +76,45 @@ transos/
 │   ├── extractor/
 │   │   └── windows.go       # Real host environment & configuration extraction module
 │   ├── injector/
-│   │   └── linux.go         # POSIX environment & dotfile injection module
+│   │   └── linux.go         # POSIX environment & dotfile injection engine
 │   ├── schema/
 │   │   └── model.go         # Schema v7 payload structures and serialization logic
+│   ├── translator/
+│   │   └── ast.go           # AST Path Translation Engine (Win-to-POSIX primitive mapping)
 │   └── wal/
 │       └── logger.go        # Transactional Write-Ahead Log safety tracker
+├── .gitignore
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
 
+---
+
 ## Installation & Setup
 
-Ensure you have Go (version 1.22 or higher) installed on your local machine.
+### Prerequisites
 
-### Clone the repository
+| Requirement | Version |
+|---|---|
+| Go | `1.22+` |
+| OS (source) | Windows |
+| OS (target) | Linux |
+
+### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/Adityaraj-Gupta-JI/TransOS.git](https://github.com/Adityaraj-Gupta-JI/TransOS.git)
+git clone https://github.com/Adityaraj-Gupta-JI/TransOS.git
 cd TransOS
 ```
 
-### Initialize and tidy Go modules
+### 2. Initialize and Tidy Go Modules
 
 ```bash
 go mod tidy
 ```
+
+---
 
 ## Usage Guide
 
@@ -66,25 +130,32 @@ go run cmd/transos/main.go interactive
 
 ### 2. Direct CLI Commands
 
-#### Extract Host State
+**Extract Host State**
 
 ```bash
 go run cmd/transos/main.go extract
 ```
 
-#### Inject & Sync State
+**Inject & Sync State**
 
 ```bash
 go run cmd/transos/main.go inject
 ```
 
+---
+
 ## Academic Project Context
 
-Developed as an advanced Systems Engineering and Operating Systems project, TransOS explores user-space virtualization alternatives to traditional full-system disk or memory snapshot migration tools (such as ISR and Zap).
+Developed as an advanced **Systems Engineering and Operating Systems** project, TransOS explores user-space virtualization alternatives to traditional full-system disk or memory snapshot migration tools (such as ISR and Zap).
+
+---
 
 ## License
 
-All the rights are reserved to the owner @2026.
+This project is proprietary software. All rights are reserved by the owner.
 
----
-```
+No part of this project, including its source code, documentation, or associated files, may be copied, modified, distributed, sublicensed, published, or used for commercial purposes without prior written permission from the owner.
+
+For permission requests, licensing inquiries, or other usage-related questions, please contact the project owner through the repository or the official contact information provided by the owner.
+
+Copyright (c) 2026 TransOS Owner. All rights reserved.
