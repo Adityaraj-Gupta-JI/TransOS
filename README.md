@@ -30,19 +30,19 @@
 
 ## Technical Architecture
 
-TransOS decouples state extraction from state injection to eliminate hypervisor dependencies and persistent background daemons.
+TransOS decouples state extraction from state injection to eliminate hypervisor dependencies and persistent background daemons:
 
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 ### 🔍 Extraction Phase
 `transos extract`
 
-Gathers host-level environment variables, user configuration paths, and system parameters, serializing them into a strictly typed, schema-validated JSON payload (`migration_profile.json`).
+Gathers host-level environment variables, user configuration paths, HKCU Win32 registry keys, and installed application inventories, serializing them into a strictly typed, schema-validated JSON payload (`migration_profile.json`).
 
 </td>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 ### 🌳 AST Path Translation Engine
 `internal/translator`
@@ -50,12 +50,20 @@ Gathers host-level environment variables, user configuration paths, and system p
 Parses Windows path primitives (`C:\Users\...`, `%APPDATA%`, multi-path string variables separated by `;`) into Abstract Syntax Trees (AST) and normalizes them into POSIX-compliant Linux paths (`~/.config/...`, path separators `:`) dynamically.
 
 </td>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
-### 💾 Injection & Persistence Phase
-`transos inject`
+### 📦 Dependency Script Generator
+`internal/translator/package_mapper.go`
 
-Translates payload parameters directly into Linux session structures (`target_output/transos_env.conf`) backed by a Write-Ahead Log (WAL) transactional rollback safety layer.
+Maps Windows installed software against a Linux software catalog to generate an automated bash dependency downloader script (`install_dependencies.sh`).
+
+</td>
+<td width="25%" valign="top">
+
+### 🧾 WAL Transaction Engine
+`internal/wal`
+
+Protects target system state by logging atomic transactions to `transos.wal` before executing mutations, allowing complete system state rollback via `transos rollback`.
 
 </td>
 </tr>
@@ -74,15 +82,20 @@ transos/
 │       └── main.go          # CLI entry point, banner, and interactive TUI control panel
 ├── internal/
 │   ├── extractor/
-│   │   └── windows.go       # Real host environment & configuration extraction module
+│   │   └── windows.go       # Win32 Registry & host environment extraction module
 │   ├── injector/
 │   │   └── linux.go         # POSIX environment & dotfile injection engine
 │   ├── schema/
 │   │   └── model.go         # Schema v7 payload structures and serialization logic
 │   ├── translator/
-│   │   └── ast.go           # AST Path Translation Engine (Win-to-POSIX primitive mapping)
+│   │   ├── ast.go           # AST Path Translation Engine (Win-to-POSIX primitive mapping)
+│   │   └── package_mapper.go # Windows-to-Linux package mapper for installer generation
 │   └── wal/
-│       └── logger.go        # Transactional Write-Ahead Log safety tracker
+│       └── logger.go        # Transactional Write-Ahead Log (WAL) engine & rollback handler
+├── target_output/           # Generated migration deliverables and transaction logs
+│   ├── transos_env.conf
+│   ├── install_dependencies.sh
+│   └── transos.wal
 ├── .gitignore
 ├── go.mod
 ├── go.sum
@@ -120,15 +133,7 @@ go mod tidy
 
 TransOS can be operated via direct CLI arguments or through its built-in interactive control panel.
 
-### 1. Interactive Control Panel (TUI)
-
-Launch the interactive terminal interface:
-
-```bash
-go run cmd/transos/main.go interactive
-```
-
-### 2. Direct CLI Commands
+### 1. Direct CLI Commands
 
 **Extract Host State**
 
@@ -140,6 +145,20 @@ go run cmd/transos/main.go extract
 
 ```bash
 go run cmd/transos/main.go inject
+```
+
+**Rollback Target State**
+
+```bash
+go run cmd/transos/main.go rollback
+```
+
+### 2. Interactive Control Panel (TUI)
+
+Launch the interactive terminal interface:
+
+```bash
+go run cmd/transos/main.go interactive
 ```
 
 ---
