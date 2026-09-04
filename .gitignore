@@ -1,0 +1,13 @@
+# Binaries
+bin/
+*.exe
+*.out
+transos
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Logs
+/var/log/transos.wal
+*.wal
