@@ -11,3 +11,7 @@ Thumbs.db
 # Logs
 /var/log/transos.wal
 *.wal
+
+migration_profile.json
+transos_env.conf
+target_output/
