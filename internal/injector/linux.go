@@ -11,7 +11,7 @@ import (
 	"github.com/transos/transos/internal/wal"
 )
 
-// InjectProfile converts state with WAL transaction logging and dependency script generation
+// InjectProfile converts state with WAL transaction logging, shell profile hooks, and dependency script generation
 func InjectProfile(profile *schema.ConfigProfile) error {
 	configDir := "target_output"
 
@@ -44,7 +44,14 @@ func InjectProfile(profile *schema.ConfigProfile) error {
 		return fmt.Errorf("failed to write environment config: %w", err)
 	}
 
-	// 3. Generate Downloader Script (with Mapped & Unmapped software sections)
+	// 3. Inject Auto-Source Hooks into Shell Profiles (.bashrc / .zshrc)
+	injectedShells, err := InjectShellHooks(tx, configDir)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("shell profile injection failed: %w", err)
+	}
+
+	// 4. Generate Downloader Script (with Mapped & Unmapped software sections)
 	scriptFilePath := filepath.Join(configDir, "install_dependencies.sh")
 	if err := tx.LogAction(wal.ActionCreateFile, scriptFilePath, "Writing dependency installer script"); err != nil {
 		_ = tx.Rollback()
@@ -90,13 +97,14 @@ func InjectProfile(profile *schema.ConfigProfile) error {
 		return fmt.Errorf("failed to write dependency script: %w", err)
 	}
 
-	// 4. Commit Transaction
+	// 5. Commit WAL Transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit WAL transaction: %w", err)
 	}
 
 	fmt.Printf("[+] WAL Transaction [%s] COMMITTED safely.\n", tx.TxID)
 	fmt.Printf("[+] AST Translator converted %d path variables to POSIX standard.\n", translatedCount)
+	fmt.Printf("[+] Injected persistent source hooks into %d shell profiles (.bashrc / .zshrc).\n", injectedShells)
 	fmt.Printf("[+] Mapped %d installed packages (%d unmapped noted in script).\n", mappedAppsCount, len(unmappedApps))
 	fmt.Printf("[+] Generated Environment Maps: %s\n", envFilePath)
 	fmt.Printf("[+] Generated Downloader Script: %s\n", scriptFilePath)
