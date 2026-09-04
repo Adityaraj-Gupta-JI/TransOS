@@ -44,55 +44,24 @@ func InjectProfile(profile *schema.ConfigProfile) error {
 		return fmt.Errorf("failed to write environment config: %w", err)
 	}
 
-	// 3. Inject Auto-Source Hooks into Shell Profiles (.bashrc / .zshrc)
+	// 3. Inject Shell Hooks Idempotently (.bashrc / .zshrc)
 	injectedShells, err := InjectShellHooks(tx, configDir)
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("shell profile injection failed: %w", err)
 	}
 
-	// 4. Generate Downloader Script (with Mapped & Unmapped software sections)
+	// 4. Generate Deduplicated & Bootstrapped Downloader Script
 	scriptFilePath := filepath.Join(configDir, "install_dependencies.sh")
 	if err := tx.LogAction(wal.ActionCreateFile, scriptFilePath, "Writing dependency installer script"); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 
-	var scriptSb strings.Builder
-	scriptSb.WriteString("#!/usr/bin/env bash\n")
-	scriptSb.WriteString("# TransOS Automated Dependency & Tool Installer Script\n")
-	scriptSb.WriteString("# Generated from Windows Installed Applications Registry\n\n")
-	scriptSb.WriteString("echo \"[TransOS] Updating local package databases...\"\n")
-	scriptSb.WriteString("sudo apt-get update -y\n\n")
-	scriptSb.WriteString("echo \"[TransOS] Installing mapped application dependencies...\"\n\n")
+	aggSoftware := translator.AggregateInstalledSoftware(profile.Registry)
+	scriptContent := translator.GenerateDependencyScript(aggSoftware)
 
-	var unmappedApps []string
-	mappedAppsCount := 0
-
-	for k, winAppName := range profile.Registry {
-		if strings.HasPrefix(k, "InstalledApp_") {
-			if cmd, matched := translator.MapWindowsAppToLinux(winAppName); matched {
-				scriptSb.WriteString(fmt.Sprintf("# Mapped from Windows App: %s\n", winAppName))
-				scriptSb.WriteString(fmt.Sprintf("%s\n\n", cmd))
-				mappedAppsCount++
-			} else {
-				unmappedApps = append(unmappedApps, winAppName)
-			}
-		}
-	}
-
-	if len(unmappedApps) > 0 {
-		scriptSb.WriteString("# =========================================================\n")
-		scriptSb.WriteString("# Unmapped Windows Applications (Review for manual install):\n")
-		for _, app := range unmappedApps {
-			scriptSb.WriteString(fmt.Sprintf("# - %s\n", app))
-		}
-		scriptSb.WriteString("# =========================================================\n\n")
-	}
-
-	scriptSb.WriteString("echo \"[TransOS] All mapped software dependencies installed successfully!\"\n")
-
-	if err := os.WriteFile(scriptFilePath, []byte(scriptSb.String()), 0755); err != nil {
+	if err := os.WriteFile(scriptFilePath, []byte(scriptContent), 0755); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("failed to write dependency script: %w", err)
 	}
@@ -104,8 +73,9 @@ func InjectProfile(profile *schema.ConfigProfile) error {
 
 	fmt.Printf("[+] WAL Transaction [%s] COMMITTED safely.\n", tx.TxID)
 	fmt.Printf("[+] AST Translator converted %d path variables to POSIX standard.\n", translatedCount)
-	fmt.Printf("[+] Injected persistent source hooks into %d shell profiles (.bashrc / .zshrc).\n", injectedShells)
-	fmt.Printf("[+] Mapped %d installed packages (%d unmapped noted in script).\n", mappedAppsCount, len(unmappedApps))
+	fmt.Printf("[+] Injected persistent source hooks into %d shell profiles (skipping existing).\n", injectedShells)
+	fmt.Printf("[+] Aggregated %d unique APT packages & %d Flatpak apps (%d unmapped).\n",
+		len(aggSoftware.AptPackages), len(aggSoftware.FlatpakApps), len(aggSoftware.Unmapped))
 	fmt.Printf("[+] Generated Environment Maps: %s\n", envFilePath)
 	fmt.Printf("[+] Generated Downloader Script: %s\n", scriptFilePath)
 

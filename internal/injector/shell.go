@@ -11,9 +11,8 @@ import (
 
 const transosHookMarker = "# TransOS Environment Auto-Source Hook"
 
-// InjectShellHooks injects environment sourcing hooks into target shell profiles (.bashrc, .zshrc)
+// InjectShellHooks injects environment sourcing hooks into target shell profiles without duplication
 func InjectShellHooks(tx *wal.WALTransaction, targetBaseDir string) (int, error) {
-	// Target standard shell configuration profiles inside target_output
 	shellFiles := []string{
 		filepath.Join(targetBaseDir, ".bashrc"),
 		filepath.Join(targetBaseDir, ".zshrc"),
@@ -29,12 +28,11 @@ func InjectShellHooks(tx *wal.WALTransaction, targetBaseDir string) (int, error)
 			existingContent = string(data)
 		}
 
-		// Prevent duplicate injection if hook already exists
-		if strings.Contains(existingContent, transosHookMarker) {
+		// Strict Idempotency Check: skip if hook marker OR config file path already exists
+		if strings.Contains(existingContent, transosHookMarker) || strings.Contains(existingContent, "transos_env.conf") {
 			continue
 		}
 
-		// Log WAL modification action prior to filesystem write
 		actionType := wal.ActionModifyFile
 		if existingContent == "" {
 			actionType = wal.ActionCreateFile
@@ -44,7 +42,7 @@ func InjectShellHooks(tx *wal.WALTransaction, targetBaseDir string) (int, error)
 			return injectedCount, err
 		}
 
-		newContent := existingContent + hookSnippet
+		newContent := strings.TrimRight(existingContent, "\n") + hookSnippet
 		if err := os.WriteFile(shellFile, []byte(newContent), 0644); err != nil {
 			return injectedCount, fmt.Errorf("failed to write shell hook to %s: %w", shellFile, err)
 		}
