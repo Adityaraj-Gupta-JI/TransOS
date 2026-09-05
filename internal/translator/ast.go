@@ -1,108 +1,213 @@
 package translator
 
 import (
+	"regexp"
 	"strings"
 )
 
-// PathNode represents a parsed component AST of a path string
+var windowsEnvironmentVariablePattern = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
+
+// PathNode is the parsed representation of a Windows path.
+//
+// The structure intentionally preserves the original path and environment
+// variables instead of immediately destroying Windows-specific semantics.
 type PathNode struct {
+	Original string
+
 	Drive      string
 	Segments   []string
 	IsAbsolute bool
-	HasEnvVar  bool
+	IsUNC      bool
+
+	HasEnvVar bool
+	EnvVars   []string
 }
 
-// ParseWinPath parses a Windows path string into an AST PathNode
-func ParseWinPath(winPath string) *PathNode {
-	// Normalize backslashes to forward slashes for segment parsing
-	normalized := strings.ReplaceAll(winPath, "\\", "/")
+// ParseWinPath parses a Windows path without assuming that every Windows
+// location has a meaningful Linux filesystem equivalent.
+func ParseWinPath(path string) PathNode {
+	original := strings.TrimSpace(path)
 
-	node := &PathNode{
-		Segments: []string{},
+	node := PathNode{
+		Original: original,
+		Segments: make([]string, 0),
+		EnvVars:  make([]string, 0),
 	}
 
-	// Extract drive letter (e.g., "C:")
-	if len(normalized) >= 2 && normalized[1] == ':' {
-		node.Drive = strings.ToUpper(normalized[:2])
+	if original == "" {
+		return node
+	}
+
+	normalized := strings.ReplaceAll(original, "\\", "/")
+
+	// UNC path:
+	// \\server\share\folder
+	if strings.HasPrefix(normalized, "//") {
+		node.IsUNC = true
+		node.IsAbsolute = true
+		normalized = strings.TrimLeft(normalized, "/")
+	} else if len(normalized) >= 2 &&
+		((normalized[0] >= 'A' && normalized[0] <= 'Z') ||
+			(normalized[0] >= 'a' && normalized[0] <= 'z')) &&
+		normalized[1] == ':' {
+		node.Drive = strings.ToUpper(string(normalized[0]))
 		normalized = normalized[2:]
-		node.IsAbsolute = true
-	}
 
-	if strings.HasPrefix(normalized, "/") {
-		node.IsAbsolute = true
-		normalized = strings.TrimPrefix(normalized, "/")
-	}
-
-	// Split path into individual AST segment nodes
-	rawSegments := strings.Split(normalized, "/")
-	for _, seg := range rawSegments {
-		if seg != "" {
-			if strings.HasPrefix(seg, "%") && strings.HasSuffix(seg, "%") {
-				node.HasEnvVar = true
-			}
-			node.Segments = append(node.Segments, seg)
+		if strings.HasPrefix(normalized, "/") {
+			node.IsAbsolute = true
+			normalized = strings.TrimLeft(normalized, "/")
 		}
+	} else if strings.HasPrefix(normalized, "/") {
+		node.IsAbsolute = true
+		normalized = strings.TrimLeft(normalized, "/")
+	}
+
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == "" || segment == "." {
+			continue
+		}
+
+		if segment == ".." {
+			if len(node.Segments) > 0 &&
+				node.Segments[len(node.Segments)-1] != ".." {
+				node.Segments = node.Segments[:len(node.Segments)-1]
+				continue
+			}
+		}
+
+		node.Segments = append(node.Segments, segment)
+	}
+
+	matches := windowsEnvironmentVariablePattern.FindAllStringSubmatch(
+		original,
+		-1,
+	)
+
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+
+		node.HasEnvVar = true
+		node.EnvVars = appendUniqueString(node.EnvVars, match[1])
 	}
 
 	return node
 }
 
-// TranslateToPOSIX evaluates the AST and converts it into a POSIX-compliant Linux path
-func (node *PathNode) TranslateToPOSIX() string {
-	if len(node.Segments) == 0 {
-		return "/"
+// TranslateToPOSIX provides a conservative textual translation for legacy
+// callers. It is intentionally not the authoritative migration decision.
+//
+// Semantic migration decisions belong to AnalyzePath in path_semantics.go.
+func TranslateToPOSIX(node PathNode) string {
+	if node.Original == "" {
+		return ""
 	}
 
-	var posixSegments []string
+	translated := node.Original
 
-	for i, seg := range node.Segments {
-		upperSeg := strings.ToUpper(seg)
-		switch upperSeg {
-		case "%USERPROFILE%", "%HOMEPATH%":
-			posixSegments = append(posixSegments, "~")
-		case "%APPDATA%":
-			posixSegments = append(posixSegments, "~/.config")
-		case "%LOCALAPPDATA%":
-			posixSegments = append(posixSegments, "~/.local/share")
-		case "%TEMP%", "%TMP%":
-			posixSegments = append(posixSegments, "/tmp")
-		default:
-			// Handle C:\Users\<Username> pattern
-			if i == 0 && upperSeg == "USERS" && len(node.Segments) > 1 {
-				continue
-			}
-			if i == 1 && len(node.Segments) > 1 && strings.ToUpper(node.Segments[0]) == "USERS" {
-				posixSegments = append(posixSegments, "~")
-				continue
-			}
-			posixSegments = append(posixSegments, seg)
+	replacements := map[string]string{
+		"%USERPROFILE%":  "$HOME",
+		"%HOMEPATH%":     "$HOME",
+		"%APPDATA%":      "$HOME/.config",
+		"%LOCALAPPDATA%": "$HOME/.local/share",
+		"%TEMP%":         "/tmp",
+		"%TMP%":          "/tmp",
+	}
+
+	for from, to := range replacements {
+		translated = strings.ReplaceAll(
+			translated,
+			from,
+			to,
+		)
+	}
+
+	translated = strings.ReplaceAll(translated, "\\", "/")
+
+	// Preserve UNC paths as UNC-like POSIX paths rather than pretending that
+	// they are local filesystem locations.
+	if strings.HasPrefix(translated, "//") {
+		return translated
+	}
+
+	// Windows drive paths are represented under /mnt/<drive> for compatibility
+	// with existing callers. This is NOT a statement that the drive will exist
+	// on the target Linux system.
+	if len(translated) >= 2 &&
+		((translated[0] >= 'A' && translated[0] <= 'Z') ||
+			(translated[0] >= 'a' && translated[0] <= 'z')) &&
+		translated[1] == ':' {
+		drive := strings.ToLower(string(translated[0]))
+		remainder := strings.TrimLeft(translated[2:], "/")
+
+		if remainder == "" {
+			return "/mnt/" + drive
 		}
+
+		return "/mnt/" + drive + "/" + remainder
 	}
 
-	result := strings.Join(posixSegments, "/")
-	if !strings.HasPrefix(result, "~") && !strings.HasPrefix(result, "/") {
-		result = "/" + result
+	if strings.HasPrefix(translated, "/") {
+		return translated
 	}
 
-	return result
+	// Shell-variable-based paths are already valid target expressions.
+	// Do not turn "$HOME/..." into "/$HOME/...".
+	if strings.HasPrefix(translated, "$") {
+		return translated
+	}
+
+	if strings.HasPrefix(translated, "~") {
+		return translated
+	}
+
+	return "/" + strings.TrimLeft(translated, "/")
 }
 
-// TranslatePathString converts raw path strings or multi-path variables (separated by ;) to POSIX format (separated by :)
-func TranslatePathString(rawPath string) string {
-	// Handle multi-path lists (e.g. Windows PATH separated by semicolon)
-	if strings.Contains(rawPath, ";") {
-		paths := strings.Split(rawPath, ";")
-		translated := make([]string, 0, len(paths))
-		for _, p := range paths {
-			trimmed := strings.TrimSpace(p)
-			if trimmed != "" {
-				node := ParseWinPath(trimmed)
-				translated = append(translated, node.TranslateToPOSIX())
-			}
-		}
-		return strings.Join(translated, ":") // Join using Linux PATH separator ':'
+// TranslatePathString translates a Windows PATH-like string while preserving
+// the distinction between individual path entries.
+//
+// Windows uses ';' as its conventional path-list separator.
+func TranslatePathString(value string) string {
+	if value == "" {
+		return ""
 	}
 
-	node := ParseWinPath(rawPath)
-	return node.TranslateToPOSIX()
+	entries := strings.Split(value, ";")
+	translated := make([]string, 0, len(entries))
+	seen := make(map[string]struct{})
+
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		node := ParseWinPath(entry)
+		result := TranslateToPOSIX(node)
+
+		if result == "" {
+			continue
+		}
+
+		if _, exists := seen[result]; exists {
+			continue
+		}
+
+		seen[result] = struct{}{}
+		translated = append(translated, result)
+	}
+
+	return strings.Join(translated, ":")
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if strings.EqualFold(existing, value) {
+			return values
+		}
+	}
+
+	return append(values, value)
 }
