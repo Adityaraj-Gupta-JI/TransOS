@@ -4,155 +4,281 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/transos/transos/internal/schema"
 )
 
+// PackageMap describes known Linux package mappings for a Windows
+// application.
 type PackageMap struct {
 	AptPackage  string
 	FlatpakApp  string
 	SnapPackage string
 }
 
-// SoftwareCatalog contains mapped package names across popular software
+// SoftwareMapping contains the migration candidates discovered for a piece
+// of source software.
+type SoftwareMapping struct {
+	SourceName     string
+	SourceVersion  string
+	AptPackage     string
+	FlatpakApp     string
+	SnapPackage    string
+	Classification string
+	Confidence     string
+}
+
+// SoftwareCatalog maps normalized Windows application names to Linux
+// installation candidates.
+//
+// This catalog is intentionally conservative. It will become substantially
+// richer once the analyzer/planner stages are implemented.
 var SoftwareCatalog = map[string]PackageMap{
-	"visual studio code": {AptPackage: "code", SnapPackage: "code --classic"},
-	"vscode":             {AptPackage: "code", SnapPackage: "code --classic"},
-	"git":                {AptPackage: "git"},
-	"python":             {AptPackage: "python3 python3-pip"},
-	"node.js":            {AptPackage: "nodejs npm"},
-	"node":               {AptPackage: "nodejs npm"},
-	"docker":             {AptPackage: "docker.io docker-compose"},
-	"google chrome":      {FlatpakApp: "com.google.Chrome"},
-	"chrome":             {FlatpakApp: "com.google.Chrome"},
-	"firefox":            {AptPackage: "firefox", FlatpakApp: "org.mozilla.firefox"},
-	"brave":              {FlatpakApp: "com.brave.Browser"},
-	"vlc":                {AptPackage: "vlc", FlatpakApp: "org.videolan.VLC"},
-	"7-zip":              {AptPackage: "p7zip-full"},
-	"go programming":     {AptPackage: "golang-go"},
-	"golang":             {AptPackage: "golang-go"},
-	"neovim":             {AptPackage: "neovim"},
-	"vim":                {AptPackage: "vim"},
-	"curl":               {AptPackage: "curl"},
-	"wget":               {AptPackage: "wget"},
-	"powershell":         {AptPackage: "powershell"},
-	"discord":            {FlatpakApp: "com.discordapp.Discord"},
-	"spotify":            {FlatpakApp: "com.spotify.Client", SnapPackage: "spotify"},
-	"steam":              {AptPackage: "steam", FlatpakApp: "com.valvesoftware.Steam"},
-	"gimp":               {AptPackage: "gimp", FlatpakApp: "org.gimp.GIMP"},
-	"inkscape":           {AptPackage: "inkscape", FlatpakApp: "org.inkscape.Inkscape"},
-	"obs studio":         {AptPackage: "obs-studio", FlatpakApp: "com.obsproject.Studio"},
-	"postman":            {FlatpakApp: "com.getpostman.Postman", SnapPackage: "postman"},
-	"notepad++":          {AptPackage: "notepadqq"},
-	"filezilla":          {AptPackage: "filezilla"},
-	"wireshark":          {AptPackage: "wireshark"},
-	"build-essential":    {AptPackage: "build-essential"},
-	"cmake":              {AptPackage: "cmake"},
-	"htop":               {AptPackage: "htop"},
-	"tmux":               {AptPackage: "tmux"},
+	"visual studio code": {
+		AptPackage: "code",
+		FlatpakApp: "com.visualstudio.code",
+	},
+	"vscode": {
+		AptPackage: "code",
+		FlatpakApp: "com.visualstudio.code",
+	},
+	"obsidian": {
+		FlatpakApp: "md.obsidian.Obsidian",
+	},
+	"discord": {
+		FlatpakApp: "com.discordapp.Discord",
+	},
+	"figma": {
+		FlatpakApp: "io.figma.Figma",
+	},
+	"zed": {
+		FlatpakApp: "dev.zed.Zed",
+	},
+	"ollama": {
+		AptPackage: "ollama",
+	},
+	"aria2": {
+		AptPackage: "aria2",
+	},
+	"python": {
+		AptPackage: "python3",
+	},
+	"python 3.10": {
+		AptPackage: "python3.10",
+	},
+	"python 3.12": {
+		AptPackage: "python3.12",
+	},
+	"python 3.13": {
+		AptPackage: "python3.13",
+	},
+	"msys2": {
+		AptPackage: "msys2",
+	},
 }
 
-type AggregatedPackages struct {
-	AptPackages map[string]bool
-	FlatpakApps map[string]bool
-	Unmapped    []string
-}
+// AnalyzeSoftware converts canonical software records into deterministic
+// Linux migration candidates.
+func AnalyzeSoftware(software []schema.Software) []SoftwareMapping {
+	results := make([]SoftwareMapping, 0, len(software))
 
-// Aggregates and deduplicates installed Windows apps into unique Linux package targets
-func AggregateInstalledSoftware(registry map[string]string) AggregatedPackages {
-	agg := AggregatedPackages{
-		AptPackages: make(map[string]bool),
-		FlatpakApps: make(map[string]bool),
-		Unmapped:    []string{},
-	}
-
-	for k, winAppName := range registry {
-		if !strings.HasPrefix(k, "InstalledApp_") {
+	for _, item := range software {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
 			continue
 		}
 
-		lower := strings.ToLower(winAppName)
-		matched := false
-
-		for key, pkg := range SoftwareCatalog {
-			if strings.Contains(lower, key) {
-				matched = true
-				if pkg.AptPackage != "" {
-					// Split multiple packages (e.g. "python3 python3-pip")
-					for _, p := range strings.Fields(pkg.AptPackage) {
-						agg.AptPackages[p] = true
-					}
-				} else if pkg.FlatpakApp != "" {
-					agg.FlatpakApps[pkg.FlatpakApp] = true
-				}
-				break
-			}
+		mapping := SoftwareMapping{
+			SourceName:     name,
+			SourceVersion:  item.Version,
+			Classification: schema.ClassificationUnknown,
+			Confidence:     "LOW",
 		}
 
-		if !matched {
-			agg.Unmapped = append(agg.Unmapped, winAppName)
+		if packageMap, ok := lookupSoftware(name); ok {
+			mapping.AptPackage = packageMap.AptPackage
+			mapping.FlatpakApp = packageMap.FlatpakApp
+			mapping.SnapPackage = packageMap.SnapPackage
+			mapping.Classification = schema.ClassificationNativeEquivalent
+			mapping.Confidence = "HIGH"
+		} else {
+			// A known application with no direct mapping remains explicitly
+			// classified instead of being silently discarded.
+			mapping.Classification = schema.ClassificationManual
+			mapping.Confidence = "LOW"
 		}
+
+		results = append(results, mapping)
 	}
 
-	return agg
+	sort.Slice(results, func(i, j int) bool {
+		return strings.ToLower(results[i].SourceName) <
+			strings.ToLower(results[j].SourceName)
+	})
+
+	return results
 }
 
-// GenerateDependencyScript creates a pre-flight bootstrapped script
-func GenerateDependencyScript(agg AggregatedPackages) string {
-	var sb strings.Builder
+// lookupSoftware performs deterministic longest-name matching.
+//
+// Exact matches are preferred. If no exact match exists, the longest catalog
+// key contained in the source name is selected.
+func lookupSoftware(name string) (PackageMap, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(name))
 
-	sb.WriteString("#!/usr/bin/env bash\n")
-	sb.WriteString("# TransOS Automated Dependency & Tool Installer Script\n")
-	sb.WriteString("# Deduplicated & Bootstrapped Package Resolution\n\n")
-
-	// Pre-flight setup checks
-	sb.WriteString("echo \"[TransOS] Checking pre-requisites and package managers...\"\n")
-	if len(agg.FlatpakApps) > 0 {
-		sb.WriteString("if command -v flatpak &> /dev/null; then\n")
-		sb.WriteString("    echo \"[TransOS] Ensuring Flathub repository is configured...\"\n")
-		sb.WriteString("    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo\n")
-		sb.WriteString("fi\n\n")
+	if mapping, ok := SoftwareCatalog[normalized]; ok {
+		return mapping, true
 	}
 
-	// APT Installations (Unified single command)
-	if len(agg.AptPackages) > 0 {
-		var aptList []string
-		for pkg := range agg.AptPackages {
-			aptList = append(aptList, pkg)
-		}
-		sort.Strings(aptList)
-
-		sb.WriteString("echo \"[TransOS] Updating local APT repositories...\"\n")
-		sb.WriteString("sudo apt-get update -y\n\n")
-
-		sb.WriteString("echo \"[TransOS] Installing aggregated APT dependencies...\"\n")
-		sb.WriteString(fmt.Sprintf("sudo apt-get install -y %s\n\n", strings.Join(aptList, " ")))
+	keys := make([]string, 0, len(SoftwareCatalog))
+	for key := range SoftwareCatalog {
+		keys = append(keys, key)
 	}
 
-	// Flatpak Installations
-	if len(agg.FlatpakApps) > 0 {
-		var flatList []string
-		for app := range agg.FlatpakApps {
-			flatList = append(flatList, app)
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) == len(keys[j]) {
+			return keys[i] < keys[j]
 		}
-		sort.Strings(flatList)
+		return len(keys[i]) > len(keys[j])
+	})
 
-		sb.WriteString("echo \"[TransOS] Installing Flatpak applications...\"\n")
-		for _, app := range flatList {
-			sb.WriteString(fmt.Sprintf("flatpak install -y flathub %s\n", app))
+	for _, key := range keys {
+		if strings.Contains(normalized, key) {
+			return SoftwareCatalog[key], true
 		}
-		sb.WriteString("\n")
 	}
 
-	// Unmapped applications reference block
-	if len(agg.Unmapped) > 0 {
-		sort.Strings(agg.Unmapped)
-		sb.WriteString("# =========================================================\n")
-		sb.WriteString("# Unmapped Windows Applications (Review for manual install):\n")
-		for _, app := range agg.Unmapped {
-			sb.WriteString(fmt.Sprintf("# - %s\n", app))
+	return PackageMap{}, false
+}
+
+// GenerateDependencyScript generates a portable Linux dependency installation
+// script from canonical software records.
+func GenerateDependencyScript(software []schema.Software) string {
+	mappings := AnalyzeSoftware(software)
+
+	var aptPackages []string
+	var flatpakApps []string
+	var snapPackages []string
+	var manual []string
+
+	for _, mapping := range mappings {
+		if mapping.AptPackage != "" {
+			aptPackages = append(aptPackages, mapping.AptPackage)
 		}
-		sb.WriteString("# =========================================================\n\n")
+
+		if mapping.FlatpakApp != "" {
+			flatpakApps = append(flatpakApps, mapping.FlatpakApp)
+		}
+
+		if mapping.SnapPackage != "" {
+			snapPackages = append(snapPackages, mapping.SnapPackage)
+		}
+
+		if mapping.AptPackage == "" &&
+			mapping.FlatpakApp == "" &&
+			mapping.SnapPackage == "" {
+			manual = append(manual, mapping.SourceName)
+		}
 	}
 
-	sb.WriteString("echo \"[TransOS] All mapped software dependencies processed successfully!\"\n")
-	return sb.String()
+	aptPackages = uniqueSorted(aptPackages)
+	flatpakApps = uniqueSorted(flatpakApps)
+	snapPackages = uniqueSorted(snapPackages)
+	manual = uniqueSorted(manual)
+
+	var builder strings.Builder
+
+	builder.WriteString("#!/usr/bin/env bash\n")
+	builder.WriteString("set -euo pipefail\n\n")
+	builder.WriteString("# Generated by TransOS.\n")
+	builder.WriteString("# This script installs migration candidates; it does not\n")
+	builder.WriteString("# guarantee exact application equivalence.\n\n")
+
+	if len(aptPackages) > 0 {
+		builder.WriteString("if command -v apt-get >/dev/null 2>&1; then\n")
+		builder.WriteString("    sudo apt-get update\n")
+		builder.WriteString("    sudo apt-get install -y")
+
+		for _, pkg := range aptPackages {
+			builder.WriteString(" ")
+			builder.WriteString(pkg)
+		}
+
+		builder.WriteString("\n")
+		builder.WriteString("fi\n\n")
+	}
+
+	if len(flatpakApps) > 0 {
+		builder.WriteString("if command -v flatpak >/dev/null 2>&1; then\n")
+
+		for _, app := range flatpakApps {
+			builder.WriteString("    flatpak install -y flathub ")
+			builder.WriteString(app)
+			builder.WriteString("\n")
+		}
+
+		builder.WriteString("fi\n\n")
+	}
+
+	if len(snapPackages) > 0 {
+		builder.WriteString("if command -v snap >/dev/null 2>&1; then\n")
+
+		for _, pkg := range snapPackages {
+			builder.WriteString("    sudo snap install ")
+			builder.WriteString(pkg)
+			builder.WriteString("\n")
+		}
+
+		builder.WriteString("fi\n\n")
+	}
+
+	if len(manual) > 0 {
+		builder.WriteString("# Manual/unsupported applications:\n")
+
+		for _, app := range manual {
+			builder.WriteString("# - ")
+			builder.WriteString(app)
+			builder.WriteString("\n")
+		}
+
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("echo \"TransOS dependency migration step completed.\"\n")
+
+	return builder.String()
+}
+
+func uniqueSorted(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+
+		if _, exists := seen[value]; exists {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+
+	sort.Strings(result)
+
+	return result
+}
+
+// FormatSoftwareMapping is useful for diagnostics and future CLI reporting.
+func FormatSoftwareMapping(mapping SoftwareMapping) string {
+	return fmt.Sprintf(
+		"%s [%s] → apt=%q flatpak=%q snap=%q",
+		mapping.SourceName,
+		mapping.Classification,
+		mapping.AptPackage,
+		mapping.FlatpakApp,
+		mapping.SnapPackage,
+	)
 }

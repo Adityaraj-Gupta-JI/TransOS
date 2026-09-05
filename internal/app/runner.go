@@ -17,7 +17,7 @@ const (
 )
 
 // ExtractProfile extracts the current host environment and persists it as
-// a TransOS migration profile.
+// a canonical TransOS migration profile.
 func ExtractProfile(profilePath string) error {
 	if profilePath == "" {
 		profilePath = DefaultProfilePath
@@ -40,8 +40,9 @@ func ExtractProfile(profilePath string) error {
 	return nil
 }
 
-// LoadProfile reads and deserializes an existing TransOS migration profile.
-func LoadProfile(profilePath string) (*schema.ConfigProfile, error) {
+// LoadProfile reads and validates an existing canonical TransOS migration
+// profile.
+func LoadProfile(profilePath string) (*schema.MigrationProfile, error) {
 	if profilePath == "" {
 		profilePath = DefaultProfilePath
 	}
@@ -74,8 +75,8 @@ func InjectProfile(profilePath string) error {
 	return nil
 }
 
-// ValidateProfile verifies that a migration profile exists and contains
-// valid JSON matching the TransOS profile schema.
+// ValidateProfile verifies that a migration profile exists, contains valid
+// JSON, and conforms to the current TransOS canonical schema.
 func ValidateProfile(profilePath string) error {
 	_, err := LoadProfile(profilePath)
 	if err != nil {
@@ -85,7 +86,7 @@ func ValidateProfile(profilePath string) error {
 	return nil
 }
 
-// PreviewProfile reads a migration profile without modifying it.
+// PreviewProfile reads and validates a migration profile without modifying it.
 func PreviewProfile(profilePath string) ([]byte, error) {
 	if profilePath == "" {
 		profilePath = DefaultProfilePath
@@ -127,8 +128,8 @@ func RunExtraction() error {
 }
 
 // RunTranslation is temporarily retained for compatibility with the current
-// CLI. Translation is currently performed as part of the injection pipeline;
-// there is not yet a separate standalone translation stage.
+// CLI. Translation will become a standalone pipeline stage after canonical
+// normalization and analysis are implemented.
 func RunTranslation() error {
 	return nil
 }
