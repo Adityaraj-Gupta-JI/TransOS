@@ -4,25 +4,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/transos/transos/internal/app"
 )
 
+// PrintBanner prints the standard TransOS CLI banner.
 func PrintBanner(version string) {
 	fmt.Printf(`
-	
 ████████╗██████╗   █████╗ ███╗   ██╗███████╗ ██████╗ ███████╗
-╚══██╔══╝██╔══██╗██╔══██╗████╗  ██║██╔════╝██╔═══██╗██╔════╝
+╚══██╔══╝██╔══██╗██╔══██╗████╗  ██║██╔════╝██╔══██╗██╔════╝
    ██║   ██████╔╝███████║██╔██╗ ██║███████╗██║   ██║███████╗
    ██║   ██╔══██╗██╔══██║██║╚██╗██║╚════██║██║   ██║╚════██║
    ██║   ██║  ██║██║  ██║██║ ╚████║███████║╚██████╔╝███████║
    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚══════╝
 :%s`, version)
+
 	fmt.Println(" OS Configuration Extractor & Translator Tool")
 	fmt.Println(" Type 'help' to see all commands or 'exit' to quit.")
 	fmt.Println()
 }
 
+// PrintStatusSummary prints the current working directory and output path.
 func PrintStatusSummary() {
 	cwd, _ := os.Getwd()
 	outputDir := filepath.Join(cwd, "target_output")
@@ -33,22 +33,26 @@ func PrintStatusSummary() {
 	fmt.Println("------------------------------------------------")
 }
 
+// PrintOutputInfo describes the currently generated migration artifacts.
 func PrintOutputInfo() {
 	cwd, _ := os.Getwd()
 	outputDir := filepath.Join(cwd, "target_output")
 
 	fmt.Printf("\nTarget Output Folder: %s\n", outputDir)
-	fmt.Println("Generated Artifacts & Linux Execution Commands:")
-	fmt.Println(" ├── install_dependencies.sh  -> Run on target: bash target_output/install_dependencies.sh")
-	fmt.Println(" ├── transos_env.conf        -> Source on target: source target_output/transos_env.conf")
-	fmt.Println(" ├── .bashrc / .zshrc        -> Append/merge with user shell configs")
-	fmt.Println(" └── transos.wal             -> Transaction audit log file")
+	fmt.Println("Generated Migration Artifacts:")
+	fmt.Println(" ├── install_dependencies.sh  -> Target-side dependency script")
+	fmt.Println(" ├── transos_env.conf         -> Generated environment configuration")
+	fmt.Println(" ├── .bashrc / .zshrc         -> Generated shell hook artifacts")
+	fmt.Println(" └── transos.wal              -> Transaction audit log")
 	fmt.Println()
 }
 
+// PrintCurrentDirectoryDetails prints the active working directory contents.
 func PrintCurrentDirectoryDetails() {
 	cwd, _ := os.Getwd()
+
 	fmt.Printf("Current Working Directory: %s\n", cwd)
+
 	files, err := os.ReadDir(cwd)
 	if err != nil {
 		fmt.Printf("Error reading directory: %v\n", err)
@@ -56,55 +60,57 @@ func PrintCurrentDirectoryDetails() {
 	}
 
 	fmt.Println("Directory Contents:")
+
 	for _, file := range files {
 		kind := "<FILE>"
+
 		if file.IsDir() {
 			kind = "<DIR> "
 		}
+
 		fmt.Printf(" %s  %s\n", kind, file.Name())
 	}
 }
 
+// PrintInteractiveHelp prints the commands supported by the current CLI.
 func PrintInteractiveHelp() {
 	fmt.Println(`
-Interactive Shell Commands:
-  1, extract      : Extract current OS configurations (Windows/Shell)
-  2, translate    : Translate extracted configs to target Linux format
-  3, inject       : Generate Linux shell scripts (.bashrc, .zshrc, install scripts)
-  4, run-all      : Execute complete pipeline (Extract -> Translate -> Inject)
-  
-  pwd, dir        : Display active working directory and contents
-  outputs, files  : Show saved output file paths & Linux execution instructions
-  help, h, ?      : Display this help context
-  exit, quit, q   : Exit the interactive tool shell`)
+TransOS Commands:
+  extract        Extract current host configuration
+  validate       Validate migration_profile.json
+  preview        Preview migration_profile.json
+  inject         Generate target migration artifacts
+  import         Alias for inject
+  rollback       Roll back recorded migration changes
+  version        Display TransOS version
+  help           Display this help
+
+Compatibility / roadmap commands:
+  translate      Not yet a standalone stage
+  run-all        Run the current Extract -> Inject pipeline
+
+Information:
+  pwd, dir        Display active working directory and contents
+  outputs, files  Show generated output information
+
+Exit:
+  exit, quit, q   Exit the interactive tool shell`)
 }
 
+// PrintHelp prints non-interactive CLI usage.
 func PrintHelp() {
-	fmt.Println(`Usage: transos [OPTIONS] or run without options for Interactive Mode.
+	fmt.Println(`Usage:
+  transos                         Launch interactive mode
+  transos extract                 Extract host state
+  transos validate                Validate migration profile
+  transos preview                 Preview migration profile
+  transos inject [profile]        Generate target migration artifacts
+  transos import [profile]        Alias for inject
+  transos rollback                Roll back recorded migration changes
+  transos version                 Display version information
+  transos help                    Show this help
 
-Options:
-  --extract     Run extraction module only
-  --translate   Run translation module only
-  --inject      Run target script injection module only
-  --all         Execute full pipeline
-  --version     Display version info
-  --help        Show this help message`)
-}
-
-func RunDirectFlags(extract, translate, inject, all bool) {
-	if all {
-		app.RunExtraction()
-		app.RunTranslation()
-		app.RunInjection()
-		return
-	}
-	if extract {
-		app.RunExtraction()
-	}
-	if translate {
-		app.RunTranslation()
-	}
-	if inject {
-		app.RunInjection()
-	}
+Roadmap / compatibility:
+  transos translate               Standalone translation stage (not implemented)
+  transos run-all                 Current Extract -> Inject pipeline`)
 }
