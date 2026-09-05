@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-REPO="your-github-username/trans-os"
+REPO="https://github.com/Adityaraj-Gupta-JI/TransOS"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="transos"
 
