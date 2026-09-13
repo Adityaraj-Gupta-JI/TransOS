@@ -16,12 +16,6 @@ const (
 	DefaultWALPath   = "target_output/transos.wal"
 )
 
-// InjectProfile generates the current TransOS migration artifacts from a
-// canonical migration profile.
-//
-// This stage currently generates a portable migration bundle rather than
-// mutating the live Linux system. Direct host application will be introduced
-// in the Linux application phase.
 func InjectProfile(profile *schema.MigrationProfile) error {
 	if profile == nil {
 		return fmt.Errorf("migration profile is nil")
@@ -58,10 +52,7 @@ func InjectProfile(profile *schema.MigrationProfile) error {
 		return fmt.Errorf("commit migration transaction: %w", err)
 	}
 
-	fmt.Printf(
-		"Migration artifacts generated successfully: %s\n",
-		outputDir,
-	)
+	fmt.Printf("Migration artifacts generated successfully: %s\n", outputDir)
 
 	return nil
 }
@@ -75,7 +66,9 @@ func injectEnvironment(
 
 	var builder strings.Builder
 
-	builder.WriteString("# TransOS generated environment configuration\n")
+	builder.WriteString("# ============================================================\n")
+	builder.WriteString("# TransOS translated environment configuration\n")
+	builder.WriteString("# ============================================================\n")
 	builder.WriteString("# Source OS: ")
 	builder.WriteString(profile.SourceSystem.OS)
 	builder.WriteString("\n")
@@ -86,11 +79,33 @@ func injectEnvironment(
 	environment := append([]schema.EnvironmentVar(nil), profile.Environment...)
 
 	sort.Slice(environment, func(i, j int) bool {
-		return environment[i].Name < environment[j].Name
+		left := strings.ToLower(environment[i].Name)
+		right := strings.ToLower(environment[j].Name)
+
+		if left == right {
+			return environment[i].Name < environment[j].Name
+		}
+
+		return left < right
 	})
+
+	seen := make(map[string]bool)
 
 	for _, env := range environment {
 		if !isValidShellIdentifier(env.Name) {
+			continue
+		}
+
+		key := strings.ToUpper(env.Name)
+
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+
+		// Windows-only runtime/system variables should not pollute Linux.
+		if shouldSkipEnvironmentVariable(env.Name) {
 			continue
 		}
 
@@ -140,6 +155,49 @@ func injectSoftwareDependencies(
 	}
 
 	return nil
+}
+
+func shouldSkipEnvironmentVariable(name string) bool {
+	switch strings.ToUpper(name) {
+	case
+		"ALLUSERSPROFILE",
+		"CHROME_CRASHPAD_PIPE_NAME",
+		"COMPUTERNAME",
+		"COMSPEC",
+		"COMMONPROGRAMFILES",
+		"COMMONPROGRAMFILES(X86)",
+		"COMMONPROGW6432",
+		"DRIVERDATA",
+		"HOMEDRIVE",
+		"HOMEPATH",
+		"LOGONSERVER",
+		"NUMBER_OF_PROCESSORS",
+		"OS",
+		"PATHEXT",
+		"PROCESSOR_ARCHITECTURE",
+		"PROCESSOR_IDENTIFIER",
+		"PROCESSOR_LEVEL",
+		"PROCESSOR_REVISION",
+		"PROGRAMDATA",
+		"PROGRAMFILES",
+		"PROGRAMFILES(X86)",
+		"PROGRAMW6432",
+		"SESSIONNAME",
+		"SYSTEMDRIVE",
+		"SYSTEMROOT",
+		"USERDOMAIN",
+		"USERDOMAIN_ROAMINGPROFILE",
+		"USERNAME",
+		"VSCODE_GIT_ASKPASS_EXTRA_ARGS",
+		"VSCODE_GIT_ASKPASS_MAIN",
+		"VSCODE_GIT_ASKPASS_NODE",
+		"VSCODE_GIT_IPC_HANDLE",
+		"VSCODE_INJECTION",
+		"WINDIR":
+		return true
+	}
+
+	return false
 }
 
 func isValidShellIdentifier(name string) bool {
