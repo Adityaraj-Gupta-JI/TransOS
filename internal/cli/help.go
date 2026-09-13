@@ -1,116 +1,180 @@
 package cli
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-)
+import "fmt"
 
-// PrintBanner prints the standard TransOS CLI banner.
 func PrintBanner(version string) {
-	fmt.Printf(`
-████████╗██████╗   █████╗ ███╗   ██╗███████╗ ██████╗ ███████╗
-╚══██╔══╝██╔══██╗██╔══██╗████╗  ██║██╔════╝██╔══██╗██╔════╝
-   ██║   ██████╔╝███████║██╔██╗ ██║███████╗██║   ██║███████╗
-   ██║   ██╔══██╗██╔══██║██║╚██╗██║╚════██║██║   ██║╚════██║
-   ██║   ██║  ██║██║  ██║██║ ╚████║███████║╚██████╔╝███████║
-   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚══════╝
-:%s`, version)
+	fmt.Printf(
+		Cyan+"TransOS %s%s\n",
+		version,
+		Reset,
+	)
 
-	fmt.Println(" OS Configuration Extractor & Translator Tool")
-	fmt.Println(" Type 'help' to see all commands or 'exit' to quit.")
+	fmt.Println(
+		Gray +
+			"Cross-Platform Environment State & Configuration Migration Engine" +
+			Reset,
+	)
+
 	fmt.Println()
 }
 
-// PrintStatusSummary prints the current working directory and output path.
-func PrintStatusSummary() {
-	cwd, _ := os.Getwd()
-	outputDir := filepath.Join(cwd, "target_output")
-
-	fmt.Println("------------- [ Environment Info ] -------------")
-	fmt.Printf(" Working Directory : %s\n", cwd)
-	fmt.Printf(" Saved Outputs Dir : %s\n", outputDir)
-	fmt.Println("------------------------------------------------")
-}
-
-// PrintOutputInfo describes the currently generated migration artifacts.
-func PrintOutputInfo() {
-	cwd, _ := os.Getwd()
-	outputDir := filepath.Join(cwd, "target_output")
-
-	fmt.Printf("\nTarget Output Folder: %s\n", outputDir)
-	fmt.Println("Generated Migration Artifacts:")
-	fmt.Println(" ├── install_dependencies.sh  -> Target-side dependency script")
-	fmt.Println(" ├── transos_env.conf         -> Generated environment configuration")
-	fmt.Println(" ├── .bashrc / .zshrc         -> Generated shell hook artifacts")
-	fmt.Println(" └── transos.wal              -> Transaction audit log")
-	fmt.Println()
-}
-
-// PrintCurrentDirectoryDetails prints the active working directory contents.
-func PrintCurrentDirectoryDetails() {
-	cwd, _ := os.Getwd()
-
-	fmt.Printf("Current Working Directory: %s\n", cwd)
-
-	files, err := os.ReadDir(cwd)
-	if err != nil {
-		fmt.Printf("Error reading directory: %v\n", err)
-		return
-	}
-
-	fmt.Println("Directory Contents:")
-
-	for _, file := range files {
-		kind := "<FILE>"
-
-		if file.IsDir() {
-			kind = "<DIR> "
-		}
-
-		fmt.Printf(" %s  %s\n", kind, file.Name())
-	}
-}
-
-// PrintInteractiveHelp prints the commands supported by the current CLI.
 func PrintInteractiveHelp() {
-	fmt.Println(`
-TransOS Commands:
-  extract        Extract current host configuration
-  validate       Validate migration_profile.json
-  preview        Preview migration_profile.json
-  inject         Generate target migration artifacts
-  import         Alias for inject
-  rollback       Roll back recorded migration changes
-  version        Display TransOS version
-  help           Display this help
+	fmt.Println()
 
-Compatibility / roadmap commands:
-  translate      Not yet a standalone stage
-  run-all        Run the current Extract -> Inject pipeline
+	printSectionHeader("TRANSOS COMMAND REFERENCE", Cyan)
 
-Information:
-  pwd, dir        Display active working directory and contents
-  outputs, files  Show generated output information
+	fmt.Println()
+	fmt.Println(Cyan + Bold + "Migration" + Reset)
 
-Exit:
-  exit, quit, q   Exit the interactive tool shell`)
+	fmt.Println(
+		"  1 / extract       Capture Windows source state",
+	)
+
+	fmt.Println(
+		"  2 / validate      Validate migration profile",
+	)
+
+	fmt.Println(
+		"  3 / preview       Inspect canonical migration JSON",
+	)
+
+	fmt.Println(
+		"  4 / inject        Generate Linux migration package",
+	)
+
+	fmt.Println(
+		"  5 / run-all       Extract → Validate → Inject",
+	)
+
+	fmt.Println(
+		"  6 / rollback      Restore WAL-backed artifact changes",
+	)
+
+	fmt.Println()
+	fmt.Println(Cyan + Bold + "Inspection" + Reset)
+
+	fmt.Println(
+		"  7 / outputs       Show generated migration package",
+	)
+
+	fmt.Println(
+		"  9 / status        Show migration state and pipeline",
+	)
+
+	fmt.Println(
+		"  about / 10       Show product and architecture overview",
+	)
+
+	fmt.Println(
+		"  pwd               Show workspace paths",
+	)
+
+	fmt.Println(
+		"  dir / ls          Show current directory contents",
+	)
+
+	fmt.Println()
+	fmt.Println(Cyan + Bold + "Utilities" + Reset)
+
+	fmt.Println(
+		"  8 / help          Show this command reference",
+	)
+
+	fmt.Println(
+		"  menu / home       Redraw the main dashboard",
+	)
+
+	fmt.Println(
+		"  clear / cls       Clear terminal screen",
+	)
+
+	fmt.Println(
+		"  version           Show TransOS version",
+	)
+
+	fmt.Println(
+		"  translate         Show translation-stage information",
+	)
+
+	fmt.Println()
+	fmt.Println(Cyan + Bold + "Exit" + Reset)
+
+	fmt.Println(
+		"  0 / exit / quit / q     Close the TransOS session",
+	)
+
+	fmt.Println()
 }
 
-// PrintHelp prints non-interactive CLI usage.
 func PrintHelp() {
-	fmt.Println(`Usage:
-  transos                         Launch interactive mode
-  transos extract                 Extract host state
-  transos validate                Validate migration profile
-  transos preview                 Preview migration profile
-  transos inject [profile]        Generate target migration artifacts
-  transos import [profile]        Alias for inject
-  transos rollback                Roll back recorded migration changes
-  transos version                 Display version information
-  transos help                    Show this help
+	fmt.Println()
 
-Roadmap / compatibility:
-  transos translate               Standalone translation stage (not implemented)
-  transos run-all                 Current Extract -> Inject pipeline`)
+	fmt.Println(
+		Cyan +
+			Bold +
+			"TransOS — Cross-Platform Environment State & Configuration Migration Engine" +
+			Reset,
+	)
+
+	fmt.Println()
+
+	fmt.Println("Usage:")
+
+	fmt.Println(
+		"  transos                       Launch persistent interactive console",
+	)
+
+	fmt.Println(
+		"  transos extract               Capture Windows source state",
+	)
+
+	fmt.Println(
+		"  transos validate              Validate migration profile",
+	)
+
+	fmt.Println(
+		"  transos preview               Preview migration profile",
+	)
+
+	fmt.Println(
+		"  transos inject [profile]      Generate Linux migration package",
+	)
+
+	fmt.Println(
+		"  transos import [profile]      Alias for inject",
+	)
+
+	fmt.Println(
+		"  transos run-all               Extract → Validate → Inject",
+	)
+
+	fmt.Println(
+		"  transos rollback              Roll back WAL-backed artifact changes",
+	)
+
+	fmt.Println(
+		"  transos status                Show migration state",
+	)
+
+	fmt.Println(
+		"  transos outputs               Show generated package",
+	)
+
+	fmt.Println(
+		"  transos version               Show version information",
+	)
+
+	fmt.Println(
+		"  transos help                  Show this help",
+	)
+
+	fmt.Println()
+
+	fmt.Println(
+		Gray +
+			"Interactive mode remains active until exit / quit / q / 0." +
+			Reset,
+	)
+
+	fmt.Println()
 }

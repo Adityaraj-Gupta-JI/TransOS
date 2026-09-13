@@ -22,6 +22,7 @@ const (
 	Purple = "\033[38;2;181;108;255m"
 	Green  = "\033[38;2;0;229;160m"
 	Yellow = "\033[38;2;255;216;77m"
+	Red    = "\033[38;2;255;92;92m"
 	White  = "\033[38;2;245;245;245m"
 	Gray   = "\033[38;2;154;164;173m"
 )
@@ -35,7 +36,18 @@ const banner = `
    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚══════╝
 `
 
-// Run is the single entry point for the TransOS CLI.
+type sessionState struct {
+	profileReady bool
+	outputReady  bool
+	walReady     bool
+
+	environmentCount int
+	softwareCount    int
+	registryCount    int
+
+	profileValid bool
+}
+
 func Run(args []string) int {
 	if len(args) == 0 {
 		return runInteractiveShell()
@@ -52,6 +64,7 @@ func Run(args []string) int {
 		if len(args) > 1 && strings.TrimSpace(args[1]) != "" {
 			profilePath = args[1]
 		}
+
 		return runInject(profilePath)
 
 	case "rollback":
@@ -75,8 +88,7 @@ func Run(args []string) int {
 		return runInteractiveShell()
 
 	case "translate":
-		fmt.Println(Yellow + "[-] Standalone translation is not implemented yet." + Reset)
-		fmt.Println(Gray + "    Translation currently occurs within the injection pipeline." + Reset)
+		printTranslationNotice()
 		return 2
 
 	case "run-all", "all", "--all":
@@ -94,47 +106,68 @@ func Run(args []string) int {
 		PrintOutputInfo()
 		return 0
 
+	case "status", "state":
+		printInteractiveStatus()
+		return 0
+
+	case "about":
+		renderAbout()
+		return 0
+
 	case "clear", "cls":
 		clearScreen()
 		return 0
 
 	default:
-		fmt.Printf(Yellow+"[-] Unknown command: '%s'\n"+Reset, command)
-		PrintHelp()
+		fmt.Printf(
+			Yellow+"[-] Unknown command: '%s'\n"+Reset,
+			command,
+		)
+
+		fmt.Println(
+			Gray + "    Type 'help' to see available commands." + Reset,
+		)
+
 		return 1
 	}
 }
 
-// runInteractiveShell starts the persistent TransOS command shell.
-//
-// The process remains alive until the user explicitly enters exit, quit, or q,
-// or until stdin reaches EOF.
 func runInteractiveShell() int {
 	clearScreen()
 	renderUI()
 
-	fmt.Println()
-	fmt.Println(Cyan + Bold + "Interactive Migration Console" + Reset)
-	fmt.Println(Gray + "Type 'help' for commands. Type 'exit' to close TransOS." + Reset)
+	fmt.Println(
+		Cyan + Bold + "Interactive Migration Console" + Reset,
+	)
+
+	fmt.Println(
+		Gray +
+			"Commands can be entered by name or number. Type 'help' for help." +
+			Reset,
+	)
+
 	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		fmt.Print(Green + "transos" + Cyan + "> " + Reset)
+		fmt.Print(interactivePrompt())
 
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println()
-				fmt.Println(Gray + "Input stream closed. Exiting TransOS." + Reset)
+				fmt.Println(
+					Gray + "Input stream closed. Exiting TransOS." + Reset,
+				)
 				return 0
 			}
 
 			fmt.Printf(
-				Yellow+"[-] Failed to read command: %v\n"+Reset,
+				Red+"[-] Failed to read command: %v\n"+Reset,
 				err,
 			)
+
 			return 1
 		}
 
@@ -146,14 +179,56 @@ func runInteractiveShell() int {
 
 		if shouldExit(commandLine) {
 			fmt.Println()
-			fmt.Println(Cyan + "TransOS session closed." + Reset)
-			fmt.Println(Gray + "Thank you for using TransOS — Bridging Worlds, Preserving You." + Reset)
+			fmt.Println(
+				Cyan + "TransOS session closed." + Reset,
+			)
+			fmt.Println(
+				Gray +
+					"Thank you for using TransOS — Bridging Worlds, Preserving You." +
+					Reset,
+			)
+
 			return 0
 		}
 
 		runInteractiveCommand(commandLine)
+
 		fmt.Println()
 	}
+}
+
+func interactivePrompt() string {
+	state := readSessionState()
+
+	profile := Gray + "P○" + Reset
+	output := Gray + "O○" + Reset
+	wal := Gray + "W○" + Reset
+
+	if state.profileReady {
+		profile = Green + "P✓" + Reset
+	}
+
+	if state.outputReady {
+		output = Green + "O✓" + Reset
+	}
+
+	if state.walReady {
+		wal = Green + "W✓" + Reset
+	}
+
+	return Green +
+		"transos" +
+		Reset +
+		" [" +
+		profile +
+		" " +
+		output +
+		" " +
+		wal +
+		"]" +
+		Cyan +
+		"> " +
+		Reset
 }
 
 func runInteractiveCommand(commandLine string) {
@@ -163,37 +238,27 @@ func runInteractiveCommand(commandLine string) {
 		return
 	}
 
-	// Numeric shortcuts make the dashboard easier to demonstrate live.
 	switch strings.ToLower(args[0]) {
 	case "1":
 		args[0] = "extract"
-
 	case "2":
 		args[0] = "validate"
-
 	case "3":
 		args[0] = "preview"
-
 	case "4":
 		args[0] = "inject"
-
 	case "5":
 		args[0] = "run-all"
-
 	case "6":
 		args[0] = "rollback"
-
 	case "7":
 		args[0] = "outputs"
-
 	case "8":
 		args[0] = "help"
-
 	case "9":
 		args[0] = "status"
-
-	default:
-		// Keep the original command unchanged.
+	case "10":
+		args[0] = "about"
 	}
 
 	command := strings.ToLower(args[0])
@@ -210,9 +275,11 @@ func runInteractiveCommand(commandLine string) {
 
 	case "inject", "import":
 		profilePath := app.DefaultProfilePath
+
 		if len(args) > 1 && strings.TrimSpace(args[1]) != "" {
 			profilePath = args[1]
 		}
+
 		runInject(profilePath)
 
 	case "rollback":
@@ -225,7 +292,9 @@ func runInteractiveCommand(commandLine string) {
 		PrintInteractiveHelp()
 
 	case "version":
-		fmt.Println(Cyan + "TransOS Version " + version + Reset)
+		fmt.Println(
+			Cyan + "TransOS Version " + version + Reset,
+		)
 
 	case "pwd":
 		PrintStatusSummary()
@@ -236,36 +305,31 @@ func runInteractiveCommand(commandLine string) {
 	case "outputs", "files":
 		PrintOutputInfo()
 
-	case "status":
+	case "status", "state":
 		printInteractiveStatus()
 
-	case "menu":
+	case "about":
+		renderAbout()
+
+	case "menu", "home":
 		clearScreen()
 		renderUI()
 
 	case "clear", "cls":
 		clearScreen()
-		renderUI()
 
 	case "translate":
-		fmt.Println(
-			Yellow + "[-] Standalone translation is not implemented yet." +
-				Reset,
-		)
-		fmt.Println(
-			Gray +
-				"    Translation currently occurs within the injection pipeline." +
-				Reset,
-		)
+		printTranslationNotice()
 
 	default:
 		fmt.Printf(
 			Yellow+"[-] Unknown command: '%s'\n"+Reset,
 			command,
 		)
+
 		fmt.Println(
 			Gray +
-				"    Type 'help' to see available commands." +
+				"    Type 'help' for commands or 'menu' to redraw the dashboard." +
 				Reset,
 		)
 	}
@@ -280,221 +344,159 @@ func shouldExit(command string) bool {
 	}
 }
 
-func printInteractiveStatus() {
-	fmt.Println(Cyan + Bold + "Current TransOS Session" + Reset)
-	fmt.Println(Gray + "----------------------------------------" + Reset)
+func readSessionState() sessionState {
+	state := sessionState{}
 
 	if _, err := os.Stat(app.DefaultProfilePath); err == nil {
-		fmt.Println(Green + "  Migration Profile : READY" + Reset)
-	} else {
-		fmt.Println(Yellow + "  Migration Profile : NOT GENERATED" + Reset)
+		state.profileReady = true
 	}
 
 	if _, err := os.Stat(app.DefaultOutputDir); err == nil {
-		fmt.Println(Green + "  Target Output     : AVAILABLE" + Reset)
-	} else {
-		fmt.Println(Yellow + "  Target Output     : NOT GENERATED" + Reset)
+		state.outputReady = true
 	}
 
 	if _, err := os.Stat(app.DefaultWALPath); err == nil {
-		fmt.Println(Green + "  WAL               : AVAILABLE" + Reset)
-	} else {
-		fmt.Println(Gray + "  WAL               : NOT YET CREATED" + Reset)
-	}
-
-	fmt.Printf(
-		Gray+"  Source runtime    : %s/%s\n"+Reset,
-		runtime.GOOS,
-		runtime.GOARCH,
-	)
-
-	fmt.Println()
-}
-
-func runExtract() int {
-	fmt.Println(Cyan + "[*] Mode: Real Extraction Engine Active..." + Reset)
-
-	if err := app.ExtractProfile(app.DefaultProfilePath); err != nil {
-		fmt.Printf(
-			Yellow+"[-] Extraction failed: %v\n"+Reset,
-			err,
-		)
-		return 1
+		state.walReady = true
 	}
 
 	profile, err := app.LoadProfile(app.DefaultProfilePath)
-	if err != nil {
-		fmt.Printf(
-			Yellow+"[-] Extraction completed, but the generated profile could not be reloaded: %v\n"+Reset,
-			err,
-		)
-		return 1
+	if err == nil {
+		state.profileValid = true
+		state.environmentCount = len(profile.Environment)
+		state.softwareCount = len(profile.Software)
+		state.registryCount = len(profile.Registry)
 	}
+
+	return state
+}
+
+func printInteractiveStatus() {
+	state := readSessionState()
 
 	fmt.Println()
-	fmt.Println(Cyan + Bold + "Extraction Summary" + Reset)
-	fmt.Printf(
-		Green+"  Environment Variables : %d\n"+Reset,
-		len(profile.Environment),
-	)
-	fmt.Printf(
-		Green+"  Software Entries      : %d\n"+Reset,
-		len(profile.Software),
-	)
-	fmt.Printf(
-		Green+"  Registry Entries      : %d\n"+Reset,
-		len(profile.Registry),
+	printSectionHeader("CURRENT MIGRATION STATE", Cyan)
+
+	printStateRow(
+		"Source",
+		runtime.GOOS+"/"+runtime.GOARCH,
+		Cyan,
 	)
 
-	fmt.Printf(
-		Green+"  Schema                : %s\n"+Reset,
-		profile.Metadata.SchemaVersion,
-	)
-
-	fmt.Printf(
-		Green+"  Profile               : %s\n"+Reset,
-		app.DefaultProfilePath,
-	)
-
-	fmt.Println()
-	fmt.Println(
-		Gray +
-			"Source state captured successfully. Use 'validate', 'preview', or 'inject' next." +
-			Reset,
-	)
-
-	return 0
-}
-
-func runInject(profilePath string) int {
-	fmt.Println(
-		Cyan +
-			"[*] Mode: Real Injection & Persistence Engine Active..." +
-			Reset,
-	)
-
-	if err := app.InjectProfile(profilePath); err != nil {
-		fmt.Printf(
-			Yellow+"[-] Injection failed: %v\n"+Reset,
-			err,
+	if state.profileValid {
+		printStateRow(
+			"Profile",
+			fmt.Sprintf(
+				"VALID • %d env • %d software • %d registry",
+				state.environmentCount,
+				state.softwareCount,
+				state.registryCount,
+			),
+			Green,
 		)
-		return 1
+	} else if state.profileReady {
+		printStateRow(
+			"Profile",
+			"PRESENT • validation required",
+			Yellow,
+		)
+	} else {
+		printStateRow(
+			"Profile",
+			"NOT GENERATED",
+			Gray,
+		)
 	}
 
-	fmt.Println(
-		Green +
-			"[+] Injection pipeline completed. Migration artifacts generated." +
-			Reset,
-	)
-
-	PrintOutputInfo()
-
-	return 0
-}
-
-func runRollback() int {
-	fmt.Println(Cyan + "[*] Rolling back TransOS transaction..." + Reset)
-
-	if err := app.Rollback(app.DefaultWALPath); err != nil {
-		fmt.Printf(
-			Yellow+"[-] Rollback failed using %s: %v\n"+Reset,
-			app.DefaultWALPath,
-			err,
+	if state.outputReady {
+		printStateRow(
+			"Package",
+			"GENERATED • target_output/",
+			Green,
 		)
-		return 1
+	} else {
+		printStateRow(
+			"Package",
+			"NOT GENERATED",
+			Gray,
+		)
 	}
 
-	fmt.Println(
-		Green + "[+] Rollback completed successfully." + Reset,
-	)
-
-	return 0
-}
-
-func runValidate() int {
-	fmt.Println(Cyan + "[*] Validating migration profile..." + Reset)
-
-	if err := app.ValidateProfile(app.DefaultProfilePath); err != nil {
-		fmt.Printf(
-			Yellow+"[-] Profile invalid: %v\n"+Reset,
-			err,
+	if state.walReady {
+		printStateRow(
+			"WAL",
+			"AVAILABLE • transactional history present",
+			Green,
 		)
-		return 1
-	}
-
-	fmt.Printf(
-		Green+"[+] Profile %s is valid!\n"+Reset,
-		app.DefaultProfilePath,
-	)
-
-	return 0
-}
-
-func runPreview() int {
-	fmt.Println(Cyan + "[*] Previewing migration profile..." + Reset)
-
-	data, err := app.PreviewProfile(app.DefaultProfilePath)
-	if err != nil {
-		fmt.Printf(
-			Yellow+"[-] Cannot preview profile: %v\n"+Reset,
-			err,
+	} else {
+		printStateRow(
+			"WAL",
+			"NOT CREATED",
+			Gray,
 		)
-		return 1
-	}
-
-	var formatted json.RawMessage
-
-	if err := json.Unmarshal(data, &formatted); err != nil {
-		fmt.Printf(
-			Yellow+"[-] Profile contains invalid JSON: %v\n"+Reset,
-			err,
-		)
-		return 1
-	}
-
-	pretty, err := json.MarshalIndent(formatted, "", "  ")
-	if err != nil {
-		fmt.Printf(
-			Yellow+"[-] Failed to format profile: %v\n"+Reset,
-			err,
-		)
-		return 1
-	}
-
-	fmt.Println(White + string(pretty) + Reset)
-
-	return 0
-}
-
-func runAll() int {
-	fmt.Println(Cyan + "[*] Running current TransOS migration pipeline..." + Reset)
-	fmt.Println(Gray + "    Extract -> Validate -> Inject" + Reset)
-	fmt.Println()
-
-	if code := runExtract(); code != 0 {
-		return code
 	}
 
 	fmt.Println()
 
-	if code := runValidate(); code != 0 {
-		return code
-	}
+	printPipeline(state)
 
 	fmt.Println()
+}
 
-	if code := runInject(app.DefaultProfilePath); code != 0 {
-		return code
+func printPipeline(state sessionState) {
+	printSectionHeader("MIGRATION PIPELINE", Purple)
+
+	extractStatus := Gray + "○" + Reset
+	validateStatus := Gray + "○" + Reset
+	packageStatus := Gray + "○" + Reset
+
+	if state.profileReady {
+		extractStatus = Green + "✓" + Reset
 	}
 
-	fmt.Println(
-		Green + "[+] Current migration pipeline completed." + Reset,
+	if state.profileValid {
+		validateStatus = Green + "✓" + Reset
+	}
+
+	if state.outputReady {
+		packageStatus = Green + "✓" + Reset
+	}
+
+	fmt.Printf(
+		"  %s EXTRACT  %s  %s VALIDATE  %s  %s PACKAGE\n",
+		extractStatus,
+		Cyan+"→"+Reset,
+		validateStatus,
+		Cyan+"→"+Reset,
+		packageStatus,
 	)
 
-	return 0
+	fmt.Printf(
+		"  %s ANALYZE  %s  %s PLAN  %s  %s APPLY  %s  %s VERIFY\n",
+		Gray+"○"+Reset,
+		Cyan+"·"+Reset,
+		Gray+"○"+Reset,
+		Cyan+"·"+Reset,
+		Gray+"○"+Reset,
+		Cyan+"·"+Reset,
+		Gray+"○"+Reset,
+	)
+}
+
+func printStateRow(label, value, colorCode string) {
+	fmt.Printf(
+		"  %s%-12s%s : %s%s%s\n",
+		Cyan+Bold,
+		label,
+		Reset,
+		colorCode,
+		value,
+		Reset,
+	)
 }
 
 func renderUI() {
+	state := readSessionState()
+
 	fmt.Println()
 	fmt.Println(Blue + Bold + banner + Reset)
 
@@ -513,7 +515,7 @@ func renderUI() {
 	fmt.Println(
 		Gray +
 			centerText(
-				"Automated Cross-Platform Environment State and Configuration Migrator",
+				"Cross-Platform Environment State & Configuration Migration Engine",
 				118,
 			) +
 			Reset,
@@ -521,243 +523,66 @@ func renderUI() {
 
 	fmt.Println()
 
-	aboutLines := []string{
-		"TransOS is an automated, lightweight, cross-platform",
-		"environment migration engine designed to extract",
-		"source configuration into a portable migration profile.",
-		"",
-		"It separates source extraction from target-side",
-		"migration so Windows state can be analyzed before use.",
-		"",
-		Cyan + Bold + `"Same You. Different OS. No Friction."` + Reset,
-	}
+	sessionLines := buildSessionLines(state)
+	pipelineLines := buildPipelineLines(state)
+	commandLines := buildCommandLines()
+	quickStartLines := buildQuickStartLines(state)
+	aboutLines := buildAboutLines()
+	projectLines := buildProjectLines()
 
-	systemLines := []string{
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"OS",
-			Reset,
-			White+runtime.GOOS+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Architecture",
-			Reset,
-			White+runtime.GOARCH+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Runtime",
-			Reset,
-			White+"Go"+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Profile",
-			Reset,
-			White+app.DefaultProfilePath+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Output",
-			Reset,
-			White+app.DefaultOutputDir+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Status",
-			Reset,
-			Green+Bold+"● READY"+Reset,
-		),
-	}
+	sessionBox := createBox(
+		"◉  Session",
+		Cyan,
+		sessionLines,
+		57,
+	)
 
-	featureLines := []string{
-		Green + Bold + "✓ " + Reset + "Extract Windows environment and system state",
-		Green + Bold + "✓ " + Reset + "Capture installed software and registry state",
-		Green + Bold + "✓ " + Reset + "Generate canonical migration profile",
-		Green + Bold + "✓ " + Reset + "Translate Windows paths for Linux",
-		Green + Bold + "✓ " + Reset + "Generate Linux migration artifacts",
-		Green + Bold + "✓ " + Reset + "Transactional WAL-backed file generation",
-		Green + Bold + "✓ " + Reset + "Persistent interactive migration console",
-		"",
-		Gray + "○ Full software compatibility analyzer   [NEXT]" + Reset,
-		Gray + "○ Full migration planner                 [NEXT]" + Reset,
-		Gray + "○ Verification and recovery engine       [NEXT]" + Reset,
-	}
+	pipelineBox := createBox(
+		"⇄  Migration Pipeline",
+		Purple,
+		pipelineLines,
+		58,
+	)
 
-	projectLines := []string{
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Version",
-			Reset,
-			White+version+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Language",
-			Reset,
-			White+"Go"+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Profile",
-			Reset,
-			White+app.DefaultProfilePath+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Output",
-			Reset,
-			White+app.DefaultOutputDir+Reset,
-		),
-		fmt.Sprintf(
-			"%s%-15s%s : %s",
-			Cyan+Bold,
-			"Target",
-			Reset,
-			White+"Linux migration package"+Reset,
-		),
-	}
+	commandsBox := createBox(
+		"❯  Commands",
+		Yellow,
+		commandLines,
+		57,
+	)
 
-	commandLines := []string{
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"1  extract",
-			Reset,
-			"Capture source state",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"2  validate",
-			Reset,
-			"Validate migration profile",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"3  preview",
-			Reset,
-			"Inspect captured state",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"4  inject",
-			Reset,
-			"Generate Linux artifacts",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"5  run-all",
-			Reset,
-			"Run Extract -> Validate -> Inject",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"6  rollback",
-			Reset,
-			"Restore WAL-backed changes",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"7  outputs",
-			Reset,
-			"Show generated package",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"8  help",
-			Reset,
-			"Show command reference",
-		),
-		fmt.Sprintf(
-			"%s%-22s%s : %s",
-			Green+Bold,
-			"0  exit",
-			Reset,
-			"Close interactive shell",
-		),
-	}
-
-	quickStartLines := []string{
-		Cyan + Bold + "Recommended demo flow" + Reset,
-		"",
-		Green + "1" + Reset + "  run-all",
-		Gray + "   Extract -> Validate -> Generate Linux package" + Reset,
-		"",
-		Green + "2" + Reset + "  outputs",
-		Gray + "   Inspect generated migration artifacts" + Reset,
-		"",
-		Green + "3" + Reset + "  exit",
-		Gray + "   Continue on the Linux VM" + Reset,
-	}
+	quickStartBox := createBox(
+		"⚡  Quick Start",
+		Blue,
+		quickStartLines,
+		58,
+	)
 
 	aboutBox := createBox(
 		"ⓘ  About TransOS",
 		Blue,
 		aboutLines,
-		65,
-	)
-
-	systemBox := createBox(
-		"▣  System Information",
-		Cyan,
-		systemLines,
-		50,
-	)
-
-	featuresBox := createBox(
-		"⚙  Key Features  [V1.0 MVP]",
-		Purple,
-		featureLines,
-		65,
+		57,
 	)
 
 	projectBox := createBox(
-		"◉  Project Details",
+		"▣  Project",
 		Green,
 		projectLines,
-		50,
+		58,
 	)
 
-	commandsBox := createBox(
-		"❯  Interactive Commands",
-		Yellow,
-		commandLines,
-		50,
-	)
-
-	quickStartBox := createBox(
-		"⚡  Quick Start",
-		Cyan,
-		quickStartLines,
-		50,
-	)
-
-	topRow := joinHorizontal(aboutBox, systemBox)
-
-	rightColumn := append(projectBox, commandsBox...)
-	rightColumn = append(rightColumn, quickStartBox...)
-
-	bottomRow := joinHorizontal(featuresBox, rightColumn)
+	topRow := joinHorizontal(sessionBox, pipelineBox)
+	middleRow := joinHorizontal(commandsBox, quickStartBox)
+	bottomRow := joinHorizontal(aboutBox, projectBox)
 
 	for _, line := range topRow {
+		fmt.Println(line)
+	}
+
+	fmt.Println()
+
+	for _, line := range middleRow {
 		fmt.Println(line)
 	}
 
@@ -772,9 +597,738 @@ func renderUI() {
 	fmt.Println(
 		Cyan +
 			Bold +
-			"──── TRANSOS — BRIDGING WORLDS, PRESERVING YOU ────" +
+			"──── TRANSOS • WINDOWS → LINUX • PRESERVE STATE, NOT THE OS ────" +
 			Reset,
 	)
+
+	fmt.Println()
+}
+
+func buildSessionLines(state sessionState) []string {
+	profileStatus := Gray + "NOT READY" + Reset
+	outputStatus := Gray + "NOT READY" + Reset
+	walStatus := Gray + "NOT READY" + Reset
+
+	if state.profileValid {
+		profileStatus = Green + "VALID" + Reset
+	} else if state.profileReady {
+		profileStatus = Yellow + "PRESENT" + Reset
+	}
+
+	if state.outputReady {
+		outputStatus = Green + "READY" + Reset
+	}
+
+	if state.walReady {
+		walStatus = Green + "AVAILABLE" + Reset
+	}
+
+	return []string{
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Cyan+Bold,
+			"Source",
+			Reset,
+			White+runtime.GOOS+"/"+runtime.GOARCH+Reset,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Cyan+Bold,
+			"Profile",
+			Reset,
+			profileStatus,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Cyan+Bold,
+			"Package",
+			Reset,
+			outputStatus,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Cyan+Bold,
+			"WAL",
+			Reset,
+			walStatus,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Cyan+Bold,
+			"Schema",
+			Reset,
+			White+"2.0.0"+Reset,
+		),
+	}
+}
+
+func buildPipelineLines(state sessionState) []string {
+	extract := "○ pending"
+	validate := "○ pending"
+	packageState := "○ pending"
+
+	if state.profileReady {
+		extract = Green + "✓ complete" + Reset
+	}
+
+	if state.profileValid {
+		validate = Green + "✓ complete" + Reset
+	}
+
+	if state.outputReady {
+		packageState = Green + "✓ complete" + Reset
+	}
+
+	return []string{
+		"  01  Extract       " + extract,
+		"  02  Normalize    " + stateLine("built into profile", Green),
+		"  03  Validate      " + validate,
+		"  04  Translate     " + stateLine("during generation", Cyan),
+		"  05  Package       " + packageState,
+		"  06  Apply         " + stateLine("Linux target", Gray),
+		"  07  Verify        " + stateLine("next phase", Gray),
+	}
+}
+
+func buildCommandLines() []string {
+	return []string{
+		"  1  extract       Capture Windows state",
+		"  2  validate      Validate migration profile",
+		"  3  preview       Inspect captured JSON",
+		"  4  inject        Generate Linux package",
+		"  5  run-all       Extract → Validate → Inject",
+		"  6  rollback      Restore WAL-backed changes",
+		"  7  outputs       Show generated artifacts",
+		"  8  help          Command reference",
+		"  9  status        Current migration state",
+		" 10  about         Product / architecture",
+		"  0  exit          Close TransOS",
+	}
+}
+
+func buildQuickStartLines(state sessionState) []string {
+	if !state.profileReady {
+		return []string{
+			Cyan + Bold + "First run" + Reset,
+			"",
+			Green + "1" + Reset + "  extract",
+			Gray + "   Capture Windows environment" + Reset,
+			"",
+			Green + "2" + Reset + "  validate",
+			Gray + "   Check canonical profile" + Reset,
+			"",
+			Green + "3" + Reset + "  inject",
+			Gray + "   Generate Linux package" + Reset,
+		}
+	}
+
+	if !state.outputReady {
+		return []string{
+			Cyan + Bold + "Continue migration" + Reset,
+			"",
+			Green + "1" + Reset + "  validate",
+			Gray + "   Confirm profile integrity" + Reset,
+			"",
+			Green + "2" + Reset + "  inject",
+			Gray + "   Generate target package" + Reset,
+			"",
+			Green + "3" + Reset + "  outputs",
+			Gray + "   Inspect generated files" + Reset,
+		}
+	}
+
+	return []string{
+		Cyan + Bold + "Package ready" + Reset,
+		"",
+		Green + "1" + Reset + "  outputs",
+		Gray + "   Inspect target_output/" + Reset,
+		"",
+		Green + "2" + Reset + "  exit",
+		Gray + "   Continue on Linux VM" + Reset,
+		"",
+		Green + "3" + Reset + "  rollback",
+		Gray + "   Restore previous state" + Reset,
+	}
+}
+
+func buildAboutLines() []string {
+	return []string{
+		"TransOS separates source discovery from",
+		"target-side migration through a canonical",
+		"migration profile.",
+		"",
+		"Windows → profile → translation →",
+		"Linux migration package.",
+		"",
+		Cyan + Bold + `"Same You. Different OS. No Friction."` + Reset,
+	}
+}
+
+func buildProjectLines() []string {
+	return []string{
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Green+Bold,
+			"Version",
+			Reset,
+			White+version+Reset,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Green+Bold,
+			"Language",
+			Reset,
+			White+"Go"+Reset,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Green+Bold,
+			"Profile",
+			Reset,
+			White+app.DefaultProfilePath+Reset,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Green+Bold,
+			"Output",
+			Reset,
+			White+app.DefaultOutputDir+Reset,
+		),
+		fmt.Sprintf(
+			"%s%-13s%s : %s",
+			Green+Bold,
+			"Target",
+			Reset,
+			White+"Linux"+Reset,
+		),
+	}
+}
+
+func renderAbout() {
+	fmt.Println()
+	printSectionHeader("ABOUT TRANSOS", Cyan)
+
+	fmt.Println(
+		White +
+			"TransOS is a cross-platform environment state and" +
+			Reset,
+	)
+
+	fmt.Println(
+		White +
+			"configuration migration engine designed around a" +
+			Reset,
+	)
+
+	fmt.Println(
+		White +
+			"portable canonical migration profile." +
+			Reset,
+	)
+
+	fmt.Println()
+
+	fmt.Println(
+		Cyan + "Architecture:" + Reset,
+	)
+
+	fmt.Println(
+		Gray +
+			"  Discovery → Extraction → Normalization → Translation" +
+			Reset,
+	)
+
+	fmt.Println(
+		Gray +
+			"  → Packaging → Linux Apply → Verification" +
+			Reset,
+	)
+
+	fmt.Println()
+
+	fmt.Println(
+		Gray +
+			"Current MVP: Windows extraction, canonical profile," +
+			Reset,
+	)
+
+	fmt.Println(
+		Gray +
+			"semantic path translation, Linux package generation," +
+			Reset,
+	)
+
+	fmt.Println(
+		Gray +
+			"and WAL-backed artifact operations." +
+			Reset,
+	)
+
+	fmt.Println()
+}
+
+func printSectionHeader(title string, colorCode string) {
+	const width = 70
+
+	titleWidth := stripANSIWidth(title)
+
+	repeatWidth := width - titleWidth - 5
+
+	if repeatWidth < 1 {
+		repeatWidth = 1
+	}
+
+	fmt.Println(
+		colorCode +
+			Bold +
+			"╭─ " +
+			title +
+			" " +
+			strings.Repeat("─", repeatWidth) +
+			"╮" +
+			Reset,
+	)
+}
+
+func stateLine(value, colorCode string) string {
+	return colorCode + value + Reset
+}
+
+func printTranslationNotice() {
+	fmt.Println(
+		Yellow +
+			"[-] Standalone translation is not exposed as a separate command yet." +
+			Reset,
+	)
+
+	fmt.Println(
+		Gray +
+			"    Semantic translation currently participates in migration generation." +
+			Reset,
+	)
+}
+
+func runExtract() int {
+	fmt.Println()
+	printSectionHeader("EXTRACTION", Cyan)
+
+	fmt.Println(
+		Gray + "  Capturing Windows environment and configuration state..." + Reset,
+	)
+
+	if err := app.ExtractProfile(app.DefaultProfilePath); err != nil {
+		fmt.Printf(
+			Red+"[-] Extraction failed: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	profile, err := app.LoadProfile(app.DefaultProfilePath)
+	if err != nil {
+		fmt.Printf(
+			Red+
+				"[-] Extraction completed, but the generated profile could not be reloaded: %v\n"+
+				Reset,
+			err,
+		)
+		return 1
+	}
+
+	fmt.Println()
+
+	printResult(
+		"Environment variables",
+		fmt.Sprintf("%d discovered", len(profile.Environment)),
+		Green,
+	)
+
+	printResult(
+		"Software entries",
+		fmt.Sprintf("%d discovered", len(profile.Software)),
+		Green,
+	)
+
+	printResult(
+		"Registry entries",
+		fmt.Sprintf("%d discovered", len(profile.Registry)),
+		Green,
+	)
+
+	printResult(
+		"Canonical schema",
+		profile.Metadata.SchemaVersion,
+		Green,
+	)
+
+	printResult(
+		"Migration profile",
+		app.DefaultProfilePath,
+		Green,
+	)
+
+	fmt.Println()
+	fmt.Println(
+		Cyan +
+			"→ Next:" +
+			Reset +
+			" validate the generated profile.",
+	)
+
+	return 0
+}
+
+func runInject(profilePath string) int {
+	fmt.Println()
+	printSectionHeader("PACKAGE GENERATION", Cyan)
+
+	fmt.Println(
+		Gray + "  Translating source state into Linux migration artifacts..." + Reset,
+	)
+
+	if err := app.InjectProfile(profilePath); err != nil {
+		fmt.Printf(
+			Red+"[-] Injection failed: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	fmt.Println()
+
+	printResult(
+		"Environment configuration",
+		"generated",
+		Green,
+	)
+
+	printResult(
+		"Shell hook artifacts",
+		"generated",
+		Green,
+	)
+
+	printResult(
+		"Linux dependency installer",
+		"generated",
+		Green,
+	)
+
+	printResult(
+		"WAL transaction",
+		"recorded",
+		Green,
+	)
+
+	fmt.Println()
+	fmt.Println(
+		Cyan +
+			"→ Next:" +
+			Reset +
+			" transfer target_output/ to the Linux system.",
+	)
+
+	return 0
+}
+
+func runRollback() int {
+	fmt.Println()
+	printSectionHeader("ROLLBACK", Yellow)
+
+	if err := app.Rollback(app.DefaultWALPath); err != nil {
+		fmt.Printf(
+			Red+"[-] Rollback failed using %s: %v\n"+Reset,
+			app.DefaultWALPath,
+			err,
+		)
+		return 1
+	}
+
+	fmt.Println()
+	fmt.Println(
+		Green + "✓ Transaction rollback completed." + Reset,
+	)
+
+	return 0
+}
+
+func runValidate() int {
+	fmt.Println()
+	printSectionHeader("VALIDATION", Cyan)
+
+	fmt.Println(
+		Gray + "  Checking canonical migration profile..." + Reset,
+	)
+
+	if err := app.ValidateProfile(app.DefaultProfilePath); err != nil {
+		fmt.Printf(
+			Red+"[-] Profile invalid: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	profile, err := app.LoadProfile(app.DefaultProfilePath)
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Profile could not be loaded: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	fmt.Println()
+
+	printResult(
+		"Profile",
+		"VALID",
+		Green,
+	)
+
+	printResult(
+		"Schema",
+		profile.Metadata.SchemaVersion,
+		Green,
+	)
+
+	printResult(
+		"Environment",
+		fmt.Sprintf("%d entries", len(profile.Environment)),
+		Green,
+	)
+
+	printResult(
+		"Software",
+		fmt.Sprintf("%d entries", len(profile.Software)),
+		Green,
+	)
+
+	printResult(
+		"Registry",
+		fmt.Sprintf("%d entries", len(profile.Registry)),
+		Green,
+	)
+
+	return 0
+}
+
+func runPreview() int {
+	fmt.Println()
+	printSectionHeader("PROFILE PREVIEW", Cyan)
+
+	data, err := app.PreviewProfile(app.DefaultProfilePath)
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Cannot preview profile: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	var formatted json.RawMessage
+
+	if err := json.Unmarshal(data, &formatted); err != nil {
+		fmt.Printf(
+			Red+"[-] Profile contains invalid JSON: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	pretty, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Failed to format profile: %v\n"+Reset,
+			err,
+		)
+		return 1
+	}
+
+	fmt.Println(White + string(pretty) + Reset)
+
+	return 0
+}
+
+func runAll() int {
+	fmt.Println()
+	printSectionHeader("FULL MIGRATION PIPELINE", Cyan)
+
+	fmt.Println(
+		Gray +
+			"  Extract → Validate → Generate Linux Package" +
+			Reset,
+	)
+
+	fmt.Println()
+
+	if code := runExtract(); code != 0 {
+		return code
+	}
+
+	fmt.Println()
+
+	if code := runValidate(); code != 0 {
+		return code
+	}
+
+	fmt.Println()
+
+	if code := runInject(app.DefaultProfilePath); code != 0 {
+		return code
+	}
+
+	fmt.Println()
+	fmt.Println(
+		Green +
+			Bold +
+			"✓ TransOS migration package generation completed." +
+			Reset,
+	)
+
+	return 0
+}
+
+func printResult(label, value, colorCode string) {
+	fmt.Printf(
+		"  %s%-26s%s %s%s%s\n",
+		Cyan,
+		label,
+		Reset,
+		colorCode,
+		value,
+		Reset,
+	)
+}
+
+func PrintStatusSummary() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Cannot determine working directory: %v\n"+Reset,
+			err,
+		)
+		return
+	}
+
+	fmt.Println()
+	printSectionHeader("WORKSPACE", Cyan)
+
+	fmt.Printf(
+		"  %sWorking directory%s : %s\n",
+		Cyan+Bold,
+		Reset,
+		cwd,
+	)
+
+	fmt.Printf(
+		"  %sProfile path%s      : %s\n",
+		Cyan+Bold,
+		Reset,
+		app.DefaultProfilePath,
+	)
+
+	fmt.Printf(
+		"  %sOutput directory%s  : %s\n",
+		Cyan+Bold,
+		Reset,
+		app.DefaultOutputDir,
+	)
+
+	fmt.Println()
+}
+
+func PrintOutputInfo() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Cannot determine working directory: %v\n"+Reset,
+			err,
+		)
+		return
+	}
+
+	outputDir := app.DefaultOutputDir
+
+	fmt.Println()
+	printSectionHeader("GENERATED MIGRATION PACKAGE", Green)
+
+	fmt.Printf(
+		"  %sLocation%s : %s\n",
+		Green+Bold,
+		Reset,
+		cwd+string(os.PathSeparator)+outputDir,
+	)
+
+	fmt.Println()
+
+	artifacts := []string{
+		"install_dependencies.sh   Linux dependency/application installer",
+		"transos_env.conf          Translated environment configuration",
+		".bashrc                   Bash integration artifact",
+		".zshrc                    Zsh integration artifact",
+		"transos.wal               Transaction audit / rollback log",
+	}
+
+	for _, artifact := range artifacts {
+		fmt.Println(
+			"  " +
+				Green +
+				"✓" +
+				Reset +
+				" " +
+				artifact,
+		)
+	}
+
+	fmt.Println()
+}
+
+func PrintCurrentDirectoryDetails() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Error reading directory: %v\n"+Reset,
+			err,
+		)
+		return
+	}
+
+	files, err := os.ReadDir(cwd)
+	if err != nil {
+		fmt.Printf(
+			Red+"[-] Error reading directory: %v\n"+Reset,
+			err,
+		)
+		return
+	}
+
+	fmt.Println()
+	printSectionHeader("WORKING DIRECTORY", Cyan)
+
+	fmt.Println(
+		"  " +
+			Gray +
+			cwd +
+			Reset,
+	)
+
+	fmt.Println()
+
+	for _, file := range files {
+		marker := "├──"
+
+		if file.IsDir() {
+			marker = "└─┬"
+		}
+
+		fmt.Printf(
+			"  %s %s%s%s\n",
+			Gray,
+			marker,
+			Reset,
+			file.Name(),
+		)
+	}
 
 	fmt.Println()
 }
@@ -789,44 +1343,67 @@ func createBox(
 	lines []string,
 	width int,
 ) []string {
+	if width < 20 {
+		width = 20
+	}
+
 	var box []string
 
-	topWidth := width - len(title) - 4
+	titleWidth := stripANSIWidth(title)
+
+	// Fixed top-border characters:
+	// "╭─ " = 3
+	// " "   = 1
+	// "╮"   = 1
+	// Therefore the repeat section is width - title - 5.
+	topWidth := width - titleWidth - 5
+
 	if topWidth < 1 {
 		topWidth = 1
 	}
 
-	topBorder := colorCode +
-		"╭─ " +
-		title +
-		" " +
-		strings.Repeat("─", topWidth) +
-		"╮" +
-		Reset
+	topBorder :=
+		colorCode +
+			"╭─ " +
+			title +
+			" " +
+			strings.Repeat("─", topWidth) +
+			"╮" +
+			Reset
 
 	box = append(box, topBorder)
 
 	for _, line := range lines {
 		visibleLen := stripANSIWidth(line)
+
+		// Content consists of:
+		// "│ " = 2
+		// " │" = 2
 		padding := width - visibleLen - 4
 
 		if padding < 0 {
 			padding = 0
 		}
 
-		content := colorCode + "│ " + Reset +
-			line +
-			strings.Repeat(" ", padding) +
-			colorCode + " │" + Reset
+		content :=
+			colorCode +
+				"│ " +
+				Reset +
+				line +
+				strings.Repeat(" ", padding) +
+				colorCode +
+				" │" +
+				Reset
 
 		box = append(box, content)
 	}
 
-	bottomBorder := colorCode +
-		"╰" +
-		strings.Repeat("─", width-2) +
-		"╯" +
-		Reset
+	bottomBorder :=
+		colorCode +
+			"╰" +
+			strings.Repeat("─", width-2) +
+			"╯" +
+			Reset
 
 	box = append(box, bottomBorder)
 
@@ -848,6 +1425,7 @@ func stripANSIWidth(s string) int {
 				(r >= 'A' && r <= 'Z') {
 				inEscape = false
 			}
+
 			continue
 		}
 
@@ -864,39 +1442,45 @@ func joinHorizontal(left, right []string) []string {
 		maxLen = len(right)
 	}
 
-	var combined []string
-
 	leftWidth := 0
+
 	if len(left) > 0 {
 		leftWidth = stripANSIWidth(left[0])
 	}
 
+	var combined []string
+
 	for i := 0; i < maxLen; i++ {
-		lLine := ""
-		rLine := ""
+		leftLine := ""
+		rightLine := ""
 
 		if i < len(left) {
-			lLine = left[i]
+			leftLine = left[i]
 		} else {
-			lLine = strings.Repeat(" ", leftWidth)
+			leftLine = strings.Repeat(" ", leftWidth)
 		}
 
 		if i < len(right) {
-			rLine = right[i]
+			rightLine = right[i]
 		}
 
-		combined = append(combined, lLine+"  "+rLine)
+		combined = append(
+			combined,
+			leftLine+"  "+rightLine,
+		)
 	}
 
 	return combined
 }
 
 func centerText(text string, width int) string {
-	if len(text) >= width {
+	visibleWidth := stripANSIWidth(text)
+
+	if visibleWidth >= width {
 		return text
 	}
 
-	pad := (width - len(text)) / 2
+	padding := (width - visibleWidth) / 2
 
-	return strings.Repeat(" ", pad) + text
+	return strings.Repeat(" ", padding) + text
 }
