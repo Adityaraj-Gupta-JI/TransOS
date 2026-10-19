@@ -36,6 +36,7 @@ func NormalizeProfile(profile *schema.MigrationProfile) (*schema.MigrationProfil
 
 func cloneProfile(profile *schema.MigrationProfile) *schema.MigrationProfile {
 	result := *profile
+	result.Metadata.ExtractionCategories = append([]string(nil), profile.Metadata.ExtractionCategories...)
 
 	result.Environment = append([]schema.EnvironmentVar(nil), profile.Environment...)
 	result.Software = append([]schema.Software(nil), profile.Software...)
@@ -68,6 +69,11 @@ func cloneMap(source map[string]string) map[string]string {
 func normalizeMetadata(profile *schema.MigrationProfile) {
 	profile.Metadata.Generator = strings.TrimSpace(profile.Metadata.Generator)
 	profile.Metadata.GeneratorVersion = strings.TrimSpace(profile.Metadata.GeneratorVersion)
+	profile.Metadata.OperationMode = strings.ToLower(strings.TrimSpace(profile.Metadata.OperationMode))
+	profile.Metadata.ExtractionDepth = strings.ToLower(strings.TrimSpace(profile.Metadata.ExtractionDepth))
+	for i := range profile.Metadata.ExtractionCategories {
+		profile.Metadata.ExtractionCategories[i] = strings.ToLower(strings.TrimSpace(profile.Metadata.ExtractionCategories[i]))
+	}
 
 	profile.SourceSystem.OS = strings.ToLower(strings.TrimSpace(profile.SourceSystem.OS))
 	profile.SourceSystem.Version = strings.TrimSpace(profile.SourceSystem.Version)
@@ -120,6 +126,8 @@ func environmentPriority(env schema.EnvironmentVar) int {
 	switch {
 	case strings.Contains(source, "hkcu\\environment"):
 		return 100
+	case strings.Contains(source, "hklm\\system\\currentcontrolset\\control\\session manager\\environment"):
+		return 75
 	case strings.Contains(source, "process_environment"):
 		return 50
 	default:

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/transos/transos/internal/config"
 	"github.com/transos/transos/internal/extractor"
 	"github.com/transos/transos/internal/injector"
+	"github.com/transos/transos/internal/normalizer"
 	"github.com/transos/transos/internal/schema"
 	"github.com/transos/transos/internal/wal"
 )
@@ -16,19 +18,48 @@ const (
 	DefaultWALPath     = "target_output/transos.wal"
 )
 
-// ExtractProfile extracts the current host environment and persists it as
-// a canonical TransOS migration profile.
+// LoadConfig returns the validated persisted TransOS configuration, creating
+// the agreed defaults when no configuration file exists yet.
+func LoadConfig() (config.Config, error) {
+	return config.LoadOrCreate(config.DefaultPath)
+}
+
+// ExtractProfile extracts host state using the persisted configuration and
+// writes a normalized canonical migration profile.
 func ExtractProfile(profilePath string) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	return ExtractProfileWithConfig(profilePath, cfg)
+}
+
+// ExtractProfileWithConfig performs configured extraction, canonical
+// normalization, validation, and profile persistence.
+func ExtractProfileWithConfig(profilePath string, cfg config.Config) error {
 	if profilePath == "" {
 		profilePath = DefaultProfilePath
 	}
 
-	profile := extractor.ExtractHostEnvironment()
+	normalizedConfig, err := config.Normalize(cfg)
+	if err != nil {
+		return fmt.Errorf("validate extraction configuration: %w", err)
+	}
+
+	profile, err := extractor.ExtractHostEnvironmentWithConfig(normalizedConfig)
+	if err != nil {
+		return fmt.Errorf("extract host environment: %w", err)
+	}
 	if profile == nil {
 		return fmt.Errorf("extract host environment returned a nil profile")
 	}
 
-	data, err := profile.Serialize()
+	normalizedProfile, err := normalizer.NormalizeProfile(profile)
+	if err != nil {
+		return fmt.Errorf("normalize extracted migration profile: %w", err)
+	}
+
+	data, err := normalizedProfile.Serialize()
 	if err != nil {
 		return fmt.Errorf("serialize migration profile: %w", err)
 	}

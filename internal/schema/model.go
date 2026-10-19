@@ -55,11 +55,14 @@ type MigrationProfile struct {
 
 // ProfileMetadata identifies the profile and the TransOS schema that produced it.
 type ProfileMetadata struct {
-	ProfileID        string `json:"profile_id"`
-	SchemaVersion    string `json:"schema_version"`
-	CreatedAt        string `json:"created_at"`
-	Generator        string `json:"generator"`
-	GeneratorVersion string `json:"generator_version,omitempty"`
+	ProfileID            string   `json:"profile_id"`
+	SchemaVersion        string   `json:"schema_version"`
+	CreatedAt            string   `json:"created_at"`
+	Generator            string   `json:"generator"`
+	GeneratorVersion     string   `json:"generator_version,omitempty"`
+	OperationMode        string   `json:"operation_mode,omitempty"`
+	ExtractionDepth      string   `json:"extraction_depth,omitempty"`
+	ExtractionCategories []string `json:"extraction_categories,omitempty"`
 }
 
 // SourceSystem describes the machine and operating system from which the

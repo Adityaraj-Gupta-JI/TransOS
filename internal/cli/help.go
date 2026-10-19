@@ -51,6 +51,10 @@ func PrintInteractiveHelp() {
 	)
 
 	fmt.Println()
+	fmt.Println(Cyan + Bold + "Configuration" + Reset)
+	fmt.Println("  config            View or change mode, extraction depth, and categories")
+
+	fmt.Println()
 	fmt.Println(Cyan + Bold + "Inspection" + Reset)
 
 	fmt.Println(
@@ -125,7 +129,11 @@ func PrintHelp() {
 	)
 
 	fmt.Println(
-		"  transos extract               Capture Windows source state",
+		"  transos extract               Capture source state using saved settings",
+	)
+
+	fmt.Println(
+		"  transos config                View or change persistent configuration",
 	)
 
 	fmt.Println(

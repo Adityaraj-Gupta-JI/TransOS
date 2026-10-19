@@ -27,6 +27,8 @@ const (
 	Gray   = "\033[38;2;154;164;173m"
 )
 
+var interactiveInputReader *bufio.Reader
+
 const banner = `
 ████████╗██████╗   █████╗ ███╗   ██╗███████╗ ██████╗ ███████╗
 ╚══██╔══╝██╔══██╗ ██╔══██╗████╗  ██║██╔════╝██╔══██╗██╔════╝
@@ -58,6 +60,9 @@ func Run(args []string) int {
 	switch command {
 	case "extract":
 		return runExtract()
+
+	case "config":
+		return runConfig(args[1:])
 
 	case "inject", "import":
 		profilePath := app.DefaultProfilePath
@@ -149,6 +154,8 @@ func runInteractiveShell() int {
 	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)
+	interactiveInputReader = reader
+	defer func() { interactiveInputReader = nil }()
 
 	for {
 		fmt.Print(interactivePrompt())
@@ -266,6 +273,9 @@ func runInteractiveCommand(commandLine string) {
 	switch command {
 	case "extract":
 		runExtract()
+
+	case "config":
+		runConfig(args[1:])
 
 	case "validate":
 		runValidate()
@@ -700,6 +710,7 @@ func buildCommandLines() []string {
 		"  6  rollback      Restore WAL-backed changes",
 		"  7  outputs       Show generated artifacts",
 		"  8  help          Command reference",
+		"     config        Configure mode, depth, and categories",
 		"  9  status        Current migration state",
 		" 10  about         Product / architecture",
 		"  0  exit          Close TransOS",
@@ -912,11 +923,20 @@ func runExtract() int {
 	fmt.Println()
 	printSectionHeader("EXTRACTION", Cyan)
 
-	fmt.Println(
-		Gray + "  Capturing Windows environment and configuration state..." + Reset,
-	)
+	cfg, err := app.LoadConfig()
+	if err != nil {
+		fmt.Printf(Red+"[-] Could not load TransOS configuration: %v\n"+Reset, err)
+		return 1
+	}
 
-	if err := app.ExtractProfile(app.DefaultProfilePath); err != nil {
+	fmt.Printf(Gray+"  Mode: %s | Depth: %s | Categories: %s\n"+Reset,
+		cfg.OperationMode,
+		cfg.ExtractionDepth,
+		strings.Join(cfg.Categories, ", "),
+	)
+	fmt.Println(Gray + "  Capturing selected Windows environment and configuration state..." + Reset)
+
+	if err := app.ExtractProfileWithConfig(app.DefaultProfilePath, cfg); err != nil {
 		fmt.Printf(
 			Red+"[-] Extraction failed: %v\n"+Reset,
 			err,
@@ -1150,9 +1170,23 @@ func runPreview() int {
 }
 
 func runAll() int {
+	cfg, err := app.LoadConfig()
+	if err != nil {
+		fmt.Printf(Red+"[-] Could not load TransOS configuration: %v\n"+Reset, err)
+		return 1
+	}
+	if cfg.OperationMode == "manual" {
+		fmt.Println()
+		printSectionHeader("MANUAL MODE", Yellow)
+		fmt.Println("  run-all is disabled in manual mode so each stage stays under your control.")
+		fmt.Println("  Run these commands individually: extract → validate → inject.")
+		return 2
+	}
+
 	fmt.Println()
 	printSectionHeader("FULL MIGRATION PIPELINE", Cyan)
 
+	fmt.Printf(Gray+"  Operation mode: %s\n"+Reset, cfg.OperationMode)
 	fmt.Println(
 		Gray +
 			"  Extract → Validate → Generate Linux Package" +
@@ -1171,6 +1205,18 @@ func runAll() int {
 		return code
 	}
 
+	if cfg.OperationMode == "guided" {
+		confirmed, err := confirmPackageGeneration()
+		if err != nil {
+			fmt.Printf(Red+"[-] Could not read confirmation: %v\n"+Reset, err)
+			return 1
+		}
+		if !confirmed {
+			fmt.Println(Yellow + "[!] Package generation cancelled. The extracted profile was retained." + Reset)
+			return 0
+		}
+	}
+
 	fmt.Println()
 
 	if code := runInject(app.DefaultProfilePath); code != 0 {
@@ -1186,6 +1232,21 @@ func runAll() int {
 	)
 
 	return 0
+}
+
+func confirmPackageGeneration() (bool, error) {
+	fmt.Print(Yellow + "  Generate the Linux migration package now? [y/N]: " + Reset)
+
+	reader := interactiveInputReader
+	if reader == nil {
+		reader = bufio.NewReader(os.Stdin)
+	}
+	response, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "y" || response == "yes", nil
 }
 
 func printResult(label, value, colorCode string) {

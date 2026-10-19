@@ -112,3 +112,30 @@ func TestNormalizeProfilePreservesUnknownSoftware(t *testing.T) {
 		)
 	}
 }
+
+func TestNormalizeProfilePreservesExtractionSettingsWithoutAliasing(t *testing.T) {
+	profile := schema.NewProfile("windows", "amd64")
+	profile.Metadata.OperationMode = " GUIDED "
+	profile.Metadata.ExtractionDepth = " MEDIUM "
+	profile.Metadata.ExtractionCategories = []string{"Environment", "Software", "Registry", "Theme"}
+
+	normalized, err := NormalizeProfile(profile)
+	if err != nil {
+		t.Fatalf("NormalizeProfile() error = %v", err)
+	}
+
+	if normalized.Metadata.OperationMode != "guided" {
+		t.Fatalf("operation mode = %q, want guided", normalized.Metadata.OperationMode)
+	}
+	if normalized.Metadata.ExtractionDepth != "medium" {
+		t.Fatalf("extraction depth = %q, want medium", normalized.Metadata.ExtractionDepth)
+	}
+	if normalized.Metadata.ExtractionCategories[0] != "environment" {
+		t.Fatalf("first normalized category = %q, want environment", normalized.Metadata.ExtractionCategories[0])
+	}
+
+	normalized.Metadata.ExtractionCategories[0] = "changed"
+	if profile.Metadata.ExtractionCategories[0] != "Environment" {
+		t.Fatal("normalizing profile metadata unexpectedly mutated the original category slice")
+	}
+}

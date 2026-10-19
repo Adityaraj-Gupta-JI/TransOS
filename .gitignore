@@ -14,6 +14,9 @@
 /dist/
 
 # ------------------------------------------------------------
+# Local user configuration
+/transos_config.json
+
 # Generated migration profiles
 # ------------------------------------------------------------
 
@@ -72,3 +75,5 @@ desktop.ini
 *.prof
 coverage.out
 coverage.html
+
+transos-stage1.patch
