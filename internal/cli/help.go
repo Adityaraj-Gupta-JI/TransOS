@@ -180,6 +180,9 @@ func PrintHelp() {
 	fmt.Println("  transos package target-check [dir]  Check Linux target compatibility")
 	fmt.Println("  transos package execution-plan [dir]  Preview target actions without execution")
 	fmt.Println("  transos package stage --approve <destination> [dir]  Stage verified files on Linux")
+	fmt.Println("  transos package apply --approve <bundle> <home> <recovery>  Apply user settings on Linux")
+	fmt.Println("  transos package verify-applied <recovery>  Verify applied user settings")
+	fmt.Println("  transos package restore --approve <recovery>  Restore original settings")
 
 	fmt.Println(
 		"  transos import [profile]      Alias for inject",

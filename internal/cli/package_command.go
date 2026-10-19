@@ -8,9 +8,43 @@ import (
 )
 
 func runPackage(args []string) int {
-	if len(args) < 1 || len(args) > 4 {
+	if len(args) < 1 || len(args) > 5 {
 		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage> [output_dir]")
 		return 2
+	}
+	if strings.EqualFold(args[0], "apply") {
+		if len(args) != 5 || args[1] != "--approve" {
+			fmt.Println("Usage: transos package apply --approve <bundle_dir> <linux_home> <new_recovery_dir>")
+			return 2
+		}
+		if err := deployment.ApplyUserConfig(args[2], args[3], args[4], true); err != nil {
+			fmt.Printf("[-] Application blocked: %v\n", err)
+			return 1
+		}
+		fmt.Println("[+] User configuration applied; recovery record saved. No packages installed.")
+		return 0
+	}
+	if strings.EqualFold(args[0], "verify-applied") {
+		if len(args) != 2 {
+			return 2
+		}
+		if err := deployment.VerifyApplied(args[1]); err != nil {
+			fmt.Printf("[-] Applied verification failed: %v\n", err)
+			return 1
+		}
+		fmt.Println("[+] Applied configuration matches recovery record.")
+		return 0
+	}
+	if strings.EqualFold(args[0], "restore") {
+		if len(args) != 3 || args[1] != "--approve" {
+			return 2
+		}
+		if err := deployment.RestoreUserConfig(args[2], true); err != nil {
+			fmt.Printf("[-] Restore blocked: %v\n", err)
+			return 1
+		}
+		fmt.Println("[+] Original user configuration restored.")
+		return 0
 	}
 	if strings.EqualFold(args[0], "stage") {
 		if (len(args) != 3 && len(args) != 4) || args[1] != "--approve" || strings.TrimSpace(args[2]) == "" {
