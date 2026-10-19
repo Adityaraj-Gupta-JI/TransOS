@@ -160,6 +160,12 @@ func PrintHelp() {
 	fmt.Println(
 		"  transos inject [profile]      Generate Linux migration package",
 	)
+	fmt.Println(
+		"  transos inject --dry-run      Preview readiness without writing files",
+	)
+	fmt.Println(
+		"  transos preflight [profile]   Check profile, plan, secrets and checkpoints",
+	)
 
 	fmt.Println(
 		"  transos import [profile]      Alias for inject",
@@ -169,11 +175,9 @@ func PrintHelp() {
 		"  transos run-all               Extract → Validate → Inject",
 	)
 
-	fmt.Println(
-		"  transos rollback              Roll back the latest active checkpoint",
-		"  transos rollback list         List retained checkpoints",
-		"  transos rollback <checkpoint> Roll back to before that checkpoint",
-	)
+	fmt.Println("  transos rollback              Roll back the latest active checkpoint")
+	fmt.Println("  transos rollback list         List retained checkpoints")
+	fmt.Println("  transos rollback <checkpoint> Roll back to before that checkpoint")
 
 	fmt.Println(
 		"  transos status                Show migration state",

@@ -9,6 +9,7 @@ import (
 	"github.com/transos/transos/internal/extractor"
 	"github.com/transos/transos/internal/injector"
 	"github.com/transos/transos/internal/normalizer"
+	"github.com/transos/transos/internal/safety"
 	"github.com/transos/transos/internal/schema"
 	"github.com/transos/transos/internal/wal"
 )
@@ -59,6 +60,10 @@ func ExtractProfileWithConfig(profilePath string, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("normalize extracted migration profile: %w", err)
 	}
+
+	// Never persist likely credentials in the generated profile. Their names
+	// remain visible so users can recreate them securely on the Linux target.
+	safety.RedactSensitiveEnvironment(normalizedProfile)
 
 	data, err := normalizedProfile.Serialize()
 	if err != nil {

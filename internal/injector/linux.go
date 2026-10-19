@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/transos/transos/internal/planner"
+	"github.com/transos/transos/internal/safety"
 	"github.com/transos/transos/internal/schema"
 	"github.com/transos/transos/internal/translator"
 	"github.com/transos/transos/internal/wal"
@@ -126,8 +127,13 @@ func injectEnvironment(
 	})
 
 	seen := make(map[string]bool)
+	sensitiveOmitted := 0
 
 	for _, env := range environment {
+		if safety.IsSensitiveEnvironmentName(env.Name) {
+			sensitiveOmitted++
+			continue
+		}
 		if !isValidShellIdentifier(env.Name) {
 			continue
 		}
@@ -168,6 +174,9 @@ func injectEnvironment(
 		builder.String(),
 	); err != nil {
 		return fmt.Errorf("log environment artifact: %w", err)
+	}
+	if sensitiveOmitted > 0 {
+		fmt.Printf("[TransOS][WARN] Omitted %d likely sensitive environment variable(s); configure them securely on Linux.\n", sensitiveOmitted)
 	}
 
 	return nil

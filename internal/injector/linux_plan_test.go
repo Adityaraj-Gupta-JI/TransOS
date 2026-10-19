@@ -85,3 +85,40 @@ func TestInjectProfileRejectsStaleMigrationPlan(t *testing.T) {
 		t.Fatalf("expected stale plan error, got %v", err)
 	}
 }
+
+func TestInjectOmitsSensitiveEnvironmentValuesFromArtifactsAndWAL(t *testing.T) {
+	profile := &schema.MigrationProfile{
+		Metadata:     schema.ProfileMetadata{ProfileID: "sensitive-env-profile", SchemaVersion: schema.CurrentSchemaVersion, CreatedAt: "2026-10-19T00:00:00Z"},
+		SourceSystem: schema.SourceSystem{OS: "windows", Architecture: "amd64"},
+		Environment: []schema.EnvironmentVar{
+			{Name: "PATH", Value: `C:\Windows`, Type: schema.EnvironmentTypePath, Scope: schema.ScopeUser, Classification: schema.ClassificationConvertible},
+			{Name: "GITHUB_TOKEN", Value: "super-secret-test-value", Type: schema.EnvironmentTypeString, Scope: schema.ScopeUser, Classification: schema.ClassificationNativeEquivalent},
+		},
+		Software: []schema.Software{},
+	}
+	root := t.TempDir()
+	outputDir := filepath.Join(root, "target_output")
+	missingPlan := filepath.Join(root, "missing-plan.json")
+	if err := InjectProfileWithOptions(profile, missingPlan, outputDir); err != nil {
+		t.Fatalf("InjectProfileWithOptions() error = %v", err)
+	}
+	for _, path := range []string{filepath.Join(outputDir, "transos_env.conf"), filepath.Join(outputDir, "transos.wal")} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(data), "super-secret-test-value") {
+			t.Errorf("sensitive value leaked into %s", path)
+		}
+	}
+	envConfig, err := os.ReadFile(filepath.Join(outputDir, "transos_env.conf"))
+	if err != nil {
+		t.Fatalf("read environment config: %v", err)
+	}
+	if strings.Contains(string(envConfig), "GITHUB_TOKEN") {
+		t.Fatal("sensitive environment variable should not be emitted")
+	}
+	if !strings.Contains(string(envConfig), "PATH=") {
+		t.Fatal("ordinary PATH variable should still be emitted")
+	}
+}

@@ -70,12 +70,18 @@ func Run(args []string) int {
 		return runPlan(args[1:])
 
 	case "inject", "import":
+		return runInjectCommand(args[1:])
+
+	case "preflight":
 		profilePath := app.DefaultProfilePath
 		if len(args) > 1 && strings.TrimSpace(args[1]) != "" {
 			profilePath = args[1]
 		}
-
-		return runInject(profilePath)
+		if len(args) > 2 {
+			fmt.Println(Red + "[-] Usage: transos preflight [profile]" + Reset)
+			return 2
+		}
+		return runPreflight(profilePath)
 
 	case "rollback":
 		return runRollback(args[1:]...)
@@ -292,13 +298,14 @@ func runInteractiveCommand(commandLine string) {
 		runPreview()
 
 	case "inject", "import":
-		profilePath := app.DefaultProfilePath
+		runInjectCommand(args[1:])
 
+	case "preflight":
+		profilePath := app.DefaultProfilePath
 		if len(args) > 1 && strings.TrimSpace(args[1]) != "" {
 			profilePath = args[1]
 		}
-
-		runInject(profilePath)
+		runPreflight(profilePath)
 
 	case "rollback":
 		runRollback(args[1:]...)
@@ -1021,11 +1028,17 @@ func runExtract() int {
 
 	fmt.Println()
 
-	printResult(
-		"Environment variables",
-		fmt.Sprintf("%d discovered", len(profile.Environment)),
-		Green,
-	)
+	redactedSensitive := 0
+	for _, env := range profile.Environment {
+		if env.Classification == "SENSITIVE_REDACTED" {
+			redactedSensitive++
+		}
+	}
+	environmentSummary := fmt.Sprintf("%d discovered", len(profile.Environment))
+	if redactedSensitive > 0 {
+		environmentSummary += fmt.Sprintf(" • %d sensitive values redacted", redactedSensitive)
+	}
+	printResult("Environment variables", environmentSummary, Green)
 
 	printResult(
 		"Software entries",
@@ -1059,6 +1072,88 @@ func runExtract() int {
 			" validate the generated profile.",
 	)
 
+	return 0
+}
+
+func runInjectCommand(args []string) int {
+	profilePath := app.DefaultProfilePath
+	profileProvided := false
+	dryRun := false
+
+	for _, arg := range args {
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "--dry-run", "--preview":
+			dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Printf(Red+"[-] Unknown inject option: %s\n"+Reset, arg)
+				fmt.Println("    Usage: transos inject [--dry-run] [profile]")
+				return 2
+			}
+			if profileProvided {
+				fmt.Println(Red + "[-] Usage: transos inject [--dry-run] [profile]" + Reset)
+				return 2
+			}
+			profilePath = arg
+			profileProvided = true
+		}
+	}
+
+	if dryRun {
+		return runPreflight(profilePath)
+	}
+	return runInject(profilePath)
+}
+
+func runPreflight(profilePath string) int {
+	fmt.Println()
+	printSectionHeader("MIGRATION PREFLIGHT • READ ONLY", Cyan)
+	fmt.Println(Gray + "  Checking migration inputs and safety conditions; no files will be changed." + Reset)
+
+	report, err := app.AnalyzePreflight(profilePath, planner.DefaultPath, app.DefaultOutputDir)
+	if err != nil {
+		fmt.Printf(Red+"[-] Preflight could not load the migration profile: %v\n"+Reset, err)
+		return 1
+	}
+
+	printResult("Profile", report.ProfilePath, Green)
+	printResult("Profile ID", report.ProfileID, Green)
+	printResult("Environment", fmt.Sprintf("%d entries", report.EnvironmentCount), Green)
+	printResult("Software", fmt.Sprintf("%d entries", report.SoftwareCount), Green)
+	printResult("Registry", fmt.Sprintf("%d entries", report.RegistryCount), Green)
+	if report.PlanPresent {
+		printResult("Review plan", fmt.Sprintf("%d included • %d pending • %d excluded", report.Included, report.Pending, report.Excluded), Green)
+		printResult("Explicit mappings", fmt.Sprintf("%d included item(s)", report.IncludedExplicitlyMapped), Gray)
+	} else {
+		printResult("Review plan", "NOT PRESENT • legacy injection behavior", Yellow)
+	}
+	if report.OutputDirectoryExists {
+		printResult("Existing output", report.OutputDirectory, Yellow)
+	} else {
+		printResult("Existing output", "not created yet", Gray)
+	}
+	printResult("Checkpoints", fmt.Sprintf("%d retained", report.CheckpointCount), Gray)
+
+	for _, name := range report.SensitiveEnvironment {
+		fmt.Printf(Yellow+"[!] Sensitive-looking variable: %s (value will not be migrated)\n"+Reset, name)
+	}
+	for _, warning := range report.Warnings {
+		fmt.Printf(Yellow+"[!] %s\n"+Reset, warning)
+	}
+	for _, blocker := range report.Blockers {
+		fmt.Printf(Red+"[BLOCKED] %s\n"+Reset, blocker)
+	}
+
+	if !report.Ready() {
+		fmt.Println(Red + "Preflight failed. Resolve blockers before generating artifacts." + Reset)
+		return 1
+	}
+	fmt.Println(Green + "✓ Preflight passed. This was a read-only check; no artifacts were generated." + Reset)
+	if report.PlanPresent {
+		fmt.Println("  Next: transos inject")
+	} else {
+		fmt.Println("  Review the warning above. For safer software selection, create a plan and explicitly approve applications before injection.")
+	}
 	return 0
 }
 
