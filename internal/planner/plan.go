@@ -238,9 +238,9 @@ func SetDecision(plan *Plan, name, decision string) (int, error) {
 	if !validDecision(decision) {
 		return 0, fmt.Errorf("invalid decision %q", decision)
 	}
-	indices := matchingIndices(plan, name)
-	if len(indices) == 0 {
-		return 0, fmt.Errorf("software %q was not found in the migration plan", name)
+	indices, err := resolveMatchingIndices(plan, name)
+	if err != nil {
+		return 0, err
 	}
 	for _, index := range indices {
 		plan.Items[index].Decision = decision
@@ -256,9 +256,9 @@ func MapPackage(plan *Plan, name, packageName string) (int, error) {
 	if !ValidLinuxPackage(packageName) {
 		return 0, fmt.Errorf("invalid Linux package name %q; use letters, digits, dot, plus, colon, underscore, or hyphen", packageName)
 	}
-	indices := matchingIndices(plan, name)
-	if len(indices) == 0 {
-		return 0, fmt.Errorf("software %q was not found in the migration plan", name)
+	indices, err := resolveMatchingIndices(plan, name)
+	if err != nil {
+		return 0, err
 	}
 	for _, index := range indices {
 		plan.Items[index].LinuxPackage = packageName
@@ -292,9 +292,9 @@ func RemoveManual(plan *Plan, name string) error {
 	if plan == nil {
 		return errors.New("migration plan is nil")
 	}
-	indices := matchingIndices(plan, name)
-	if len(indices) == 0 {
-		return fmt.Errorf("software %q was not found in the migration plan", name)
+	indices, err := resolveMatchingIndices(plan, name)
+	if err != nil {
+		return err
 	}
 	for _, index := range indices {
 		if !plan.Items[index].Manual {
@@ -359,18 +359,43 @@ func ResolveForInjection(profile *schema.MigrationProfile, plan *Plan) ([]schema
 	return software, overrides, summary, nil
 }
 
-func matchingIndices(plan *Plan, name string) []int {
+// resolveMatchingIndices prefers exact case-insensitive matches, then permits
+// a unique substring match for long display names. Ambiguous partial matches are
+// rejected so a short search cannot accidentally modify several applications.
+func resolveMatchingIndices(plan *Plan, name string) ([]int, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil
+		return nil, errors.New("software name cannot be empty")
 	}
-	indices := make([]int, 0)
+
+	wanted := strings.ToLower(name)
+	exact := make([]int, 0, 1)
+	partial := make([]int, 0, 1)
 	for index, item := range plan.Items {
-		if strings.EqualFold(strings.TrimSpace(item.Name), name) {
-			indices = append(indices, index)
+		candidate := strings.ToLower(strings.TrimSpace(item.Name))
+		if candidate == wanted {
+			exact = append(exact, index)
+			continue
+		}
+		if strings.Contains(candidate, wanted) {
+			partial = append(partial, index)
 		}
 	}
-	return indices
+
+	if len(exact) > 0 {
+		return exact, nil
+	}
+	if len(partial) == 1 {
+		return partial, nil
+	}
+	if len(partial) > 1 {
+		var candidates []string
+		for _, index := range partial {
+			candidates = append(candidates, fmt.Sprintf("%q", plan.Items[index].Name))
+		}
+		return nil, fmt.Errorf("software query %q is ambiguous; use a longer name or exact name. Matches: %s", name, strings.Join(candidates, ", "))
+	}
+	return nil, fmt.Errorf("software %q was not found in the migration plan", name)
 }
 
 func validDecision(decision string) bool {

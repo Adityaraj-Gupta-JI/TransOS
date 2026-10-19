@@ -78,7 +78,7 @@ func Run(args []string) int {
 		return runInject(profilePath)
 
 	case "rollback":
-		return runRollback()
+		return runRollback(args[1:]...)
 
 	case "validate":
 		return runValidate()
@@ -301,7 +301,7 @@ func runInteractiveCommand(commandLine string) {
 		runInject(profilePath)
 
 	case "rollback":
-		runRollback()
+		runRollback(args[1:]...)
 
 	case "run-all", "all":
 		runAll()
@@ -771,7 +771,7 @@ func buildCommandLines() []string {
 		"  3  preview       Inspect captured JSON",
 		"  4  inject        Generate Linux package",
 		"  5  run-all       Extract → Validate → Inject",
-		"  6  rollback      Restore WAL-backed changes",
+		"  6  rollback      Roll back the latest or a selected checkpoint",
 		"  7  outputs       Show generated artifacts",
 		"  8  help          Command reference",
 		"     config        Configure mode, depth, and categories",
@@ -1115,24 +1115,68 @@ func runInject(profilePath string) int {
 	return 0
 }
 
-func runRollback() int {
+func runRollback(args ...string) int {
+	if len(args) > 0 && strings.EqualFold(strings.TrimSpace(args[0]), "list") {
+		if len(args) > 1 {
+			fmt.Println(Red + "[-] Usage: transos rollback list" + Reset)
+			return 2
+		}
+		checkpoints, err := app.ListCheckpoints(app.DefaultOutputDir)
+		if err != nil {
+			fmt.Printf(Red+"[-] Cannot list checkpoints: %v\n"+Reset, err)
+			return 1
+		}
+		if len(checkpoints) == 0 {
+			fmt.Println("No retained checkpoints found. Older TransOS runs may have only the legacy WAL file.")
+			return 0
+		}
+		fmt.Println("Retained migration checkpoints (newest first):")
+		fmt.Printf("%-24s %-20s %-18s %s\n", "CHECKPOINT ID", "CREATED (UTC)", "STATUS", "ENTRIES")
+		fmt.Printf("%-24s %-20s %-18s %s\n", "-------------", "------------", "------", "-------")
+		for _, checkpoint := range checkpoints {
+			createdAt := checkpoint.CreatedAt
+			if len(createdAt) > 19 {
+				createdAt = createdAt[:19]
+			}
+			fmt.Printf("%-24s %-20s %-18s %d\n", checkpoint.ID, createdAt, checkpoint.Status, checkpoint.Entries)
+		}
+		fmt.Println("Use 'transos rollback <checkpoint-id>' to restore the state from before that checkpoint and all newer checkpoints.")
+		return 0
+	}
+
+	targetID := ""
+	if len(args) == 1 {
+		if !strings.EqualFold(strings.TrimSpace(args[0]), "latest") {
+			targetID = strings.TrimSpace(args[0])
+		}
+	} else if len(args) == 2 && strings.EqualFold(strings.TrimSpace(args[0]), "to") {
+		targetID = strings.TrimSpace(args[1])
+	} else if len(args) > 0 {
+		fmt.Println(Red + "[-] Usage: transos rollback [list | latest | <checkpoint-id> | to <checkpoint-id>]" + Reset)
+		return 2
+	}
+
 	fmt.Println()
 	printSectionHeader("ROLLBACK", Yellow)
 
-	if err := app.Rollback(app.DefaultWALPath); err != nil {
-		fmt.Printf(
-			Red+"[-] Rollback failed using %s: %v\n"+Reset,
-			app.DefaultWALPath,
-			err,
-		)
+	var err error
+	if targetID == "" {
+		err = app.Rollback(app.DefaultWALPath)
+	} else {
+		err = app.RollbackToCheckpoint(app.DefaultWALPath, targetID)
+	}
+	if err != nil {
+		fmt.Printf(Red+"[-] Rollback failed using %s: %v\n"+Reset, app.DefaultWALPath, err)
 		return 1
 	}
 
 	fmt.Println()
-	fmt.Println(
-		Green + "✓ Transaction rollback completed." + Reset,
-	)
-
+	if targetID == "" {
+		fmt.Println(Green + "✓ Latest active checkpoint rollback completed." + Reset)
+	} else {
+		fmt.Printf(Green+"✓ Rolled back to the state before checkpoint %s (newer active checkpoints were reversed first).\n"+Reset, targetID)
+	}
+	fmt.Println("  Checkpoint history: transos rollback list")
 	return 0
 }
 
@@ -1392,7 +1436,8 @@ func PrintOutputInfo() {
 		"transos_env.conf          Translated environment configuration",
 		".bashrc                   Bash integration artifact",
 		".zshrc                    Zsh integration artifact",
-		"transos.wal               Transaction audit / rollback log",
+		"transos.wal               Latest transaction audit / compatibility log",
+		"checkpoints/               Retained transaction history for multi-checkpoint rollback",
 	}
 
 	for _, artifact := range artifacts {

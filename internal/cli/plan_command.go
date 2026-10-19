@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/transos/transos/internal/app"
 	"github.com/transos/transos/internal/planner"
@@ -52,14 +54,21 @@ func runPlan(args []string) int {
 		summary := planner.SummaryOf(plan)
 		fmt.Printf("Migration plan: %s\nProfile ID: %s\n", planner.DefaultPath, plan.ProfileID)
 		fmt.Printf("Items: %d | Included: %d | Pending: %d | Excluded: %d\n\n", len(plan.Items), summary.Included, summary.Pending, summary.Excluded)
-		fmt.Printf("%-10s %-34s %-16s %s\n", "DECISION", "SOFTWARE", "VERSION", "LINUX PACKAGE")
-		fmt.Printf("%-10s %-34s %-16s %s\n", "----------", "--------", "-------", "-------------")
+		// Do not truncate software names: users must be able to copy the exact
+		// name from this view, and matching also supports unique substrings.
+		writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(writer, "DECISION\tSOFTWARE\tVERSION\tLINUX PACKAGE")
+		fmt.Fprintln(writer, "--------\t--------\t-------\t-------------")
 		for _, item := range plan.Items {
 			name := item.Name
 			if item.Manual {
 				name += " [manual]"
 			}
-			fmt.Printf("%-10s %-34.34s %-16.16s %s\n", item.Decision, name, item.Version, item.LinuxPackage)
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", item.Decision, name, item.Version, item.LinuxPackage)
+		}
+		if err := writer.Flush(); err != nil {
+			fmt.Printf(Red+"[-] Failed to print migration plan: %v\n"+Reset, err)
+			return 1
 		}
 		return 0
 

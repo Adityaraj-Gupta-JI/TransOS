@@ -47,7 +47,7 @@ func PrintInteractiveHelp() {
 	)
 
 	fmt.Println(
-		"  6 / rollback      Restore WAL-backed artifact changes",
+		"  6 / rollback      Roll back the latest or a selected checkpoint",
 	)
 
 	fmt.Println()
@@ -170,7 +170,9 @@ func PrintHelp() {
 	)
 
 	fmt.Println(
-		"  transos rollback              Roll back WAL-backed artifact changes",
+		"  transos rollback              Roll back the latest active checkpoint",
+		"  transos rollback list         List retained checkpoints",
+		"  transos rollback <checkpoint> Roll back to before that checkpoint",
 	)
 
 	fmt.Println(

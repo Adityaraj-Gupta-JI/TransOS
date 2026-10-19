@@ -143,3 +143,38 @@ func TestSaveCreatesParentDirectory(t *testing.T) {
 		t.Fatalf("saved plan missing: %v", err)
 	}
 }
+
+func TestUniqueSubstringMatchesLongSoftwareName(t *testing.T) {
+	plan := &Plan{
+		Version: PlanVersion, ProfileID: "p1", CreatedAt: "now", UpdatedAt: "now",
+		Items: []Item{
+			{Name: "Microsoft Visual Studio Code (User Install)", Decision: DecisionPending},
+			{Name: "Canva", Decision: DecisionPending},
+		},
+	}
+	count, err := SetDecision(plan, "Visual Studio Code", DecisionInclude)
+	if err != nil {
+		t.Fatalf("SetDecision() unique substring error = %v", err)
+	}
+	if count != 1 || plan.Items[0].Decision != DecisionInclude || plan.Items[1].Decision != DecisionPending {
+		t.Fatalf("unexpected decisions after unique substring match: count=%d items=%+v", count, plan.Items)
+	}
+}
+
+func TestAmbiguousSubstringMatchIsRejected(t *testing.T) {
+	plan := &Plan{
+		Version: PlanVersion, ProfileID: "p1", CreatedAt: "now", UpdatedAt: "now",
+		Items: []Item{
+			{Name: "Python 3.10.11", Decision: DecisionPending},
+			{Name: "Python 3.12.10", Decision: DecisionPending},
+		},
+	}
+	if _, err := SetDecision(plan, "Python", DecisionInclude); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous substring error, got %v", err)
+	}
+	for _, item := range plan.Items {
+		if item.Decision != DecisionPending {
+			t.Fatalf("ambiguous match changed %q to %q", item.Name, item.Decision)
+		}
+	}
+}

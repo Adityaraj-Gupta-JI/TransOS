@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/transos/transos/internal/config"
 	"github.com/transos/transos/internal/extractor"
@@ -135,22 +136,52 @@ func PreviewProfile(profilePath string) ([]byte, error) {
 	return data, nil
 }
 
-// Rollback restores the previous state recorded by the TransOS WAL.
+// Rollback restores the newest active checkpoint. When no retained checkpoint
+// history exists, it falls back to the legacy single-WAL behavior.
 func Rollback(walPath string) error {
 	if walPath == "" {
 		walPath = DefaultWALPath
+	}
+	logDir := filepath.Dir(walPath)
+	checkpoints, err := wal.ListCheckpoints(logDir)
+	if err != nil {
+		return fmt.Errorf("list checkpoints: %w", err)
+	}
+	if len(checkpoints) > 0 {
+		if err := wal.RollbackLatest(logDir); err != nil {
+			return fmt.Errorf("rollback latest checkpoint: %w", err)
+		}
+		return nil
 	}
 
 	tx, err := wal.LoadWAL(walPath)
 	if err != nil {
 		return fmt.Errorf("load WAL %q: %w", walPath, err)
 	}
-
 	if err := tx.Rollback(); err != nil {
 		return fmt.Errorf("rollback transaction: %w", err)
 	}
-
 	return nil
+}
+
+// RollbackToCheckpoint reverses the selected checkpoint and all newer active
+// checkpoints, restoring the state that existed before the selected run.
+func RollbackToCheckpoint(walPath, checkpointID string) error {
+	if walPath == "" {
+		walPath = DefaultWALPath
+	}
+	if err := wal.RollbackTo(filepath.Dir(walPath), checkpointID); err != nil {
+		return fmt.Errorf("rollback to checkpoint %q: %w", checkpointID, err)
+	}
+	return nil
+}
+
+// ListCheckpoints returns retained transaction summaries newest first.
+func ListCheckpoints(outputDir string) ([]wal.CheckpointInfo, error) {
+	if outputDir == "" {
+		outputDir = DefaultOutputDir
+	}
+	return wal.ListCheckpoints(outputDir)
 }
 
 // RunExtraction is the compatibility entry point used by the current CLI.

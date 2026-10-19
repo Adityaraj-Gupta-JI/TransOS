@@ -38,13 +38,11 @@ func InjectShellHooks(tx *wal.WALTransaction, targetBaseDir string) (int, error)
 			actionType = wal.ActionCreateFile
 		}
 
-		if err := tx.LogAction(actionType, shellFile, "Injecting TransOS shell profile hook"); err != nil {
-			return injectedCount, err
-		}
-
 		newContent := strings.TrimRight(existingContent, "\n") + hookSnippet
-		if err := os.WriteFile(shellFile, []byte(newContent), 0644); err != nil {
-			return injectedCount, fmt.Errorf("failed to write shell hook to %s: %w", shellFile, err)
+		// The WAL must write the exact final contents so its content hash and
+		// backup accurately represent what can later be rolled back.
+		if err := tx.LogAction(actionType, shellFile, newContent); err != nil {
+			return injectedCount, fmt.Errorf("log shell hook for %s: %w", shellFile, err)
 		}
 
 		injectedCount++
