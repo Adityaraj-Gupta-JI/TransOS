@@ -69,6 +69,9 @@ func Run(args []string) int {
 	case "plan":
 		return runPlan(args[1:])
 
+	case "package":
+		return runPackage(args[1:])
+
 	case "inject", "import":
 		return runInjectCommand(args[1:])
 
@@ -290,6 +293,9 @@ func runInteractiveCommand(commandLine string) {
 
 	case "plan":
 		runPlan(args[1:])
+
+	case "package":
+		runPackage(args[1:])
 
 	case "validate":
 		runValidate()

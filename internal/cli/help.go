@@ -64,6 +64,12 @@ func PrintInteractiveHelp() {
 	fmt.Println("  plan add/remove   Manage manually added candidates")
 
 	fmt.Println()
+	fmt.Println("  package seal      Create SHA-256 manifest for generated artifacts")
+	fmt.Println("  package verify    Verify artifacts against the manifest")
+	fmt.Println("  package inspect   Show sealed artifact names and hashes")
+	fmt.Println("  package target-check  Verify bundle and assess Linux target (read-only)")
+	fmt.Println("  package execution-plan  Preview proposed target actions (read-only)")
+
 	fmt.Println(Cyan + Bold + "Inspection" + Reset)
 
 	fmt.Println(
@@ -166,6 +172,12 @@ func PrintHelp() {
 	fmt.Println(
 		"  transos preflight [profile]   Check profile, plan, secrets and checkpoints",
 	)
+
+	fmt.Println("  transos package seal [dir]    Seal generated Linux artifacts")
+	fmt.Println("  transos package verify [dir]  Verify sealed artifact integrity")
+	fmt.Println("  transos package inspect [dir] Inspect manifest contents")
+	fmt.Println("  transos package target-check [dir]  Check Linux target compatibility")
+	fmt.Println("  transos package execution-plan [dir]  Preview target actions without execution")
 
 	fmt.Println(
 		"  transos import [profile]      Alias for inject",
