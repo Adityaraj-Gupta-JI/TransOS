@@ -59,6 +59,16 @@ func Run(args []string) int {
 
 	command := strings.ToLower(strings.TrimSpace(args[0]))
 
+	if command == "help" || command == "--help" || command == "-h" {
+		return printTopicHelp(args[1:])
+	}
+	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+		return printTopicHelp([]string{command})
+	}
+	if command == "package" && len(args) > 2 && (args[2] == "--help" || args[2] == "-h") {
+		return printTopicHelp([]string{"package", args[1]})
+	}
+
 	switch command {
 	case "extract":
 		return runExtract()
@@ -152,20 +162,8 @@ func Run(args []string) int {
 }
 
 func runInteractiveShell() int {
-	clearScreen()
-	renderUI()
-
-	fmt.Println(
-		Cyan + Bold + "Interactive Migration Console" + Reset,
-	)
-
-	fmt.Println(
-		Gray +
-			"Commands can be entered by name or number. Type 'help' for help." +
-			Reset,
-	)
-
-	fmt.Println()
+	activeWorkspace = -1
+	renderWorkspaceHome()
 
 	reader := bufio.NewReader(os.Stdin)
 	interactiveInputReader = reader
@@ -212,44 +210,21 @@ func runInteractiveShell() int {
 			return 0
 		}
 
-		runInteractiveCommand(commandLine)
+		if !handleWorkspaceInput(splitCommandLine(commandLine)) {
+			runInteractiveCommand(commandLine)
+		}
 
 		fmt.Println()
 	}
 }
 
 func interactivePrompt() string {
-	state := readSessionState()
-
-	profile := Gray + "P○" + Reset
-	output := Gray + "O○" + Reset
-	wal := Gray + "W○" + Reset
-
-	if state.profileReady {
-		profile = Green + "P✓" + Reset
+	location := "home"
+	if activeWorkspace >= 0 && activeWorkspace < len(workspaces) {
+		location = strings.ToLower(strings.ReplaceAll(workspaces[activeWorkspace].name, " & ", "-"))
+		location = strings.ReplaceAll(location, " ", "-")
 	}
-
-	if state.outputReady {
-		output = Green + "O✓" + Reset
-	}
-
-	if state.walReady {
-		wal = Green + "W✓" + Reset
-	}
-
-	return Green +
-		"transos" +
-		Reset +
-		" [" +
-		profile +
-		" " +
-		output +
-		" " +
-		wal +
-		"]" +
-		Cyan +
-		"> " +
-		Reset
+	return uiAccent("transos") + " / " + location + " > "
 }
 
 func runInteractiveCommand(commandLine string) {
@@ -283,6 +258,19 @@ func runInteractiveCommand(commandLine string) {
 	}
 
 	command := strings.ToLower(args[0])
+
+	if command == "help" || command == "--help" || command == "-h" {
+		printTopicHelp(args[1:])
+		return
+	}
+	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+		printTopicHelp([]string{command})
+		return
+	}
+	if command == "package" && len(args) > 2 && (args[2] == "--help" || args[2] == "-h") {
+		printTopicHelp([]string{"package", args[1]})
+		return
+	}
 
 	switch command {
 	case "extract":

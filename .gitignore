@@ -90,6 +90,10 @@ transos-stage5b.patch
 transos-stage5c.patch
 transos-stage5d.patch
 transos-stage5ef.patch
+transos-stage6a-help.patch
+transos-stage6b-workspaces.patch
+transos-stage6c-fixed.patch
+transos-stage6c-ui.patch
 
 /migration_plan.json
 
