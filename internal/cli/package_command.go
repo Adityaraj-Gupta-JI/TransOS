@@ -8,8 +8,28 @@ import (
 )
 
 func runPackage(args []string) int {
-	if len(args) < 1 || len(args) > 2 {
-		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan> [output_dir]")
+	if len(args) < 1 || len(args) > 4 {
+		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage> [output_dir]")
+		return 2
+	}
+	if strings.EqualFold(args[0], "stage") {
+		if (len(args) != 3 && len(args) != 4) || args[1] != "--approve" || strings.TrimSpace(args[2]) == "" {
+			fmt.Println("Usage: transos package stage --approve <new_destination> [bundle_dir]")
+			return 2
+		}
+		bundle := injector.DefaultOutputDir
+		if len(args) == 4 {
+			bundle = args[3]
+		}
+		if err := deployment.Stage(bundle, args[2], true); err != nil {
+			fmt.Printf("[-] Staging blocked: %v\n", err)
+			return 1
+		}
+		fmt.Printf("[+] Verified artifacts staged at %s for manual review. No scripts executed.\n", args[2])
+		return 0
+	}
+	if len(args) > 2 {
+		fmt.Println("Unexpected arguments")
 		return 2
 	}
 	dir := injector.DefaultOutputDir
@@ -99,7 +119,7 @@ func runPackage(args []string) int {
 		fmt.Println("Inspect does not verify file contents; run package verify.")
 		return 0
 	default:
-		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan> [output_dir]")
+		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage> [output_dir]")
 		return 2
 	}
 }
