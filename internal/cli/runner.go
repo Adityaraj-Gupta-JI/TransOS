@@ -8,8 +8,10 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/transos/transos/internal/app"
+	"github.com/transos/transos/internal/planner"
 )
 
 const (
@@ -63,6 +65,9 @@ func Run(args []string) int {
 
 	case "config":
 		return runConfig(args[1:])
+
+	case "plan":
+		return runPlan(args[1:])
 
 	case "inject", "import":
 		profilePath := app.DefaultProfilePath
@@ -239,7 +244,7 @@ func interactivePrompt() string {
 }
 
 func runInteractiveCommand(commandLine string) {
-	args := strings.Fields(commandLine)
+	args := splitCommandLine(commandLine)
 
 	if len(args) == 0 {
 		return
@@ -276,6 +281,9 @@ func runInteractiveCommand(commandLine string) {
 
 	case "config":
 		runConfig(args[1:])
+
+	case "plan":
+		runPlan(args[1:])
 
 	case "validate":
 		runValidate()
@@ -352,6 +360,62 @@ func shouldExit(command string) bool {
 	default:
 		return false
 	}
+}
+
+// splitCommandLine keeps quoted software names together in the interactive CLI.
+func splitCommandLine(line string) []string {
+	var args []string
+	var token strings.Builder
+	var quote rune
+	escaped := false
+	tokenStarted := false
+
+	flush := func() {
+		if tokenStarted {
+			args = append(args, token.String())
+			token.Reset()
+			tokenStarted = false
+		}
+	}
+
+	for _, char := range line {
+		if escaped {
+			token.WriteRune(char)
+			tokenStarted = true
+			escaped = false
+			continue
+		}
+		if char == '\\' && quote == '"' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			} else {
+				token.WriteRune(char)
+			}
+			tokenStarted = true
+			continue
+		}
+		if char == '"' || char == '\'' {
+			quote = char
+			tokenStarted = true
+			continue
+		}
+		if unicode.IsSpace(char) {
+			flush()
+			continue
+		}
+		token.WriteRune(char)
+		tokenStarted = true
+	}
+	if escaped {
+		token.WriteRune('\\')
+		tokenStarted = true
+	}
+	flush()
+	return args
 }
 
 func readSessionState() sessionState {
@@ -1170,6 +1234,16 @@ func runPreview() int {
 }
 
 func runAll() int {
+	if _, err := os.Stat(planner.DefaultPath); err == nil {
+		fmt.Println(Yellow + "[!] run-all paused because migration_plan.json exists." + Reset)
+		fmt.Println("    run-all refreshes the source profile and could invalidate reviewed decisions.")
+		fmt.Println("    Use 'validate' → 'inject' to apply the current plan, or 'extract' → 'plan create --force' to rebuild it.")
+		return 2
+	} else if !os.IsNotExist(err) {
+		fmt.Printf(Red+"[-] Cannot inspect migration plan: %v\n"+Reset, err)
+		return 1
+	}
+
 	cfg, err := app.LoadConfig()
 	if err != nil {
 		fmt.Printf(Red+"[-] Could not load TransOS configuration: %v\n"+Reset, err)
@@ -1189,7 +1263,7 @@ func runAll() int {
 	fmt.Printf(Gray+"  Operation mode: %s\n"+Reset, cfg.OperationMode)
 	fmt.Println(
 		Gray +
-			"  Extract → Validate → Generate Linux Package" +
+			"  Extract → Validate → Review Plan → Generate Linux Package" +
 			Reset,
 	)
 
@@ -1206,15 +1280,21 @@ func runAll() int {
 	}
 
 	if cfg.OperationMode == "guided" {
-		confirmed, err := confirmPackageGeneration()
+		profile, err := app.LoadProfile(app.DefaultProfilePath)
 		if err != nil {
-			fmt.Printf(Red+"[-] Could not read confirmation: %v\n"+Reset, err)
+			fmt.Printf(Red+"[-] Could not load extracted profile: %v\n"+Reset, err)
 			return 1
 		}
-		if !confirmed {
-			fmt.Println(Yellow + "[!] Package generation cancelled. The extracted profile was retained." + Reset)
-			return 0
+		plan, err := planner.CreateFromProfile(profile, planner.DefaultPath, false)
+		if err != nil {
+			fmt.Printf(Red+"[-] Could not create migration review plan: %v\n"+Reset, err)
+			return 1
 		}
+		fmt.Println()
+		fmt.Printf(Green+"✓ Created %s with %d pending software candidates.\n"+Reset, planner.DefaultPath, len(plan.Items))
+		fmt.Println("  Guided mode stops here so you can review software before installation.")
+		fmt.Println("  Run 'plan show', explicitly include the software you want, then run 'inject'.")
+		return 0
 	}
 
 	fmt.Println()
@@ -1232,21 +1312,6 @@ func runAll() int {
 	)
 
 	return 0
-}
-
-func confirmPackageGeneration() (bool, error) {
-	fmt.Print(Yellow + "  Generate the Linux migration package now? [y/N]: " + Reset)
-
-	reader := interactiveInputReader
-	if reader == nil {
-		reader = bufio.NewReader(os.Stdin)
-	}
-	response, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return false, err
-	}
-	response = strings.ToLower(strings.TrimSpace(response))
-	return response == "y" || response == "yes", nil
 }
 
 func printResult(label, value, colorCode string) {

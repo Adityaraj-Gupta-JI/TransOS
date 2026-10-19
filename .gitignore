@@ -77,3 +77,5 @@ coverage.out
 coverage.html
 
 transos-stage1.patch
+transos-stage2.patch
+/migration_plan.json

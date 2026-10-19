@@ -1,11 +1,13 @@
 package injector
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
 
+	"github.com/transos/transos/internal/planner"
 	"github.com/transos/transos/internal/schema"
 	"github.com/transos/transos/internal/translator"
 	"github.com/transos/transos/internal/wal"
@@ -17,15 +19,49 @@ const (
 )
 
 func InjectProfile(profile *schema.MigrationProfile) error {
+	return InjectProfileWithOptions(profile, planner.DefaultPath, DefaultOutputDir)
+}
+
+// InjectProfileWithPlanPath is useful for callers that need to select a plan
+// location while keeping the default generated-artifact directory.
+func InjectProfileWithPlanPath(profile *schema.MigrationProfile, planPath string) error {
+	return InjectProfileWithOptions(profile, planPath, DefaultOutputDir)
+}
+
+// InjectProfileWithOptions applies a reviewed plan when planPath exists. With
+// no plan file, it preserves the pre-planner legacy behavior for compatibility.
+func InjectProfileWithOptions(profile *schema.MigrationProfile, planPath, outputDir string) error {
 	if profile == nil {
 		return fmt.Errorf("migration profile is nil")
 	}
-
 	if err := profile.Validate(); err != nil {
 		return fmt.Errorf("validate migration profile: %w", err)
 	}
+	if planPath == "" {
+		planPath = planner.DefaultPath
+	}
+	if outputDir == "" {
+		outputDir = DefaultOutputDir
+	}
 
-	outputDir := DefaultOutputDir
+	software := profile.Software
+	packageOverrides := map[string]string(nil)
+	var appliedSummary *planner.Summary
+	if _, err := os.Stat(planPath); err == nil {
+		plan, loadErr := planner.Load(planPath)
+		if loadErr != nil {
+			return fmt.Errorf("load migration plan: %w", loadErr)
+		}
+		resolvedSoftware, overrides, summary, resolveErr := planner.ResolveForInjection(profile, plan)
+		if resolveErr != nil {
+			return fmt.Errorf("apply migration plan: %w", resolveErr)
+		}
+		software = resolvedSoftware
+		packageOverrides = overrides
+		appliedSummary = &summary
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check migration plan %q: %w", planPath, err)
+	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
@@ -39,21 +75,21 @@ func InjectProfile(profile *schema.MigrationProfile) error {
 	if err := injectEnvironment(tx, profile, outputDir); err != nil {
 		return err
 	}
-
 	if _, err := InjectShellHooks(tx, outputDir); err != nil {
 		return fmt.Errorf("inject shell hooks: %w", err)
 	}
-
-	if err := injectSoftwareDependencies(tx, profile, outputDir); err != nil {
+	if err := injectSoftwareDependencies(tx, software, packageOverrides, outputDir); err != nil {
 		return err
 	}
-
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration transaction: %w", err)
 	}
 
 	fmt.Printf("Migration artifacts generated successfully: %s\n", outputDir)
-
+	if appliedSummary != nil {
+		fmt.Printf("Migration plan applied: %d included, %d pending skipped, %d excluded skipped.\n",
+			appliedSummary.Included, appliedSummary.Pending, appliedSummary.Excluded)
+	}
 	return nil
 }
 
@@ -139,12 +175,13 @@ func injectEnvironment(
 
 func injectSoftwareDependencies(
 	tx *wal.WALTransaction,
-	profile *schema.MigrationProfile,
+	software []schema.Software,
+	packageOverrides map[string]string,
 	outputDir string,
 ) error {
 	path := outputDir + string(os.PathSeparator) + "install_dependencies.sh"
 
-	script := translator.GenerateDependencyScript(profile.Software)
+	script := translator.GenerateDependencyScriptWithOverrides(software, packageOverrides)
 
 	if err := tx.LogAction(
 		wal.ActionCreateFile,

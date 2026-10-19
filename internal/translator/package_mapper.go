@@ -11,11 +11,18 @@ type softwarePlan struct {
 	Identity     string
 	Strategy     string
 	InstallBlock string
+	PackageName  string
 	Reason       string
 }
 
 func GenerateDependencyScript(software []schema.Software) string {
-	plans := buildSoftwarePlans(software)
+	return GenerateDependencyScriptWithOverrides(software, nil)
+}
+
+// GenerateDependencyScriptWithOverrides creates the package installer using
+// explicitly reviewed Linux package names, where supplied by the migration plan.
+func GenerateDependencyScriptWithOverrides(software []schema.Software, overrides map[string]string) string {
+	plans := buildSoftwarePlansWithOverrides(software, overrides)
 
 	var builder strings.Builder
 
@@ -168,12 +175,18 @@ echo
 			continue
 		}
 
-		aptPackage := aptPackageForIdentity(plan.Identity)
+		aptPackage := plan.PackageName
+		if aptPackage == "" {
+			aptPackage = aptPackageForIdentity(plan.Identity)
+		}
 		if aptPackage != "" {
 			aptPackages = append(aptPackages, aptPackage)
 		}
 
-		dnfPackage := dnfPackageForIdentity(plan.Identity)
+		dnfPackage := plan.PackageName
+		if dnfPackage == "" {
+			dnfPackage = dnfPackageForIdentity(plan.Identity)
+		}
 		if dnfPackage != "" {
 			dnfPackages = append(dnfPackages, dnfPackage)
 		}
@@ -389,29 +402,86 @@ echo
 }
 
 func buildSoftwarePlans(software []schema.Software) []softwarePlan {
+	return buildSoftwarePlansWithOverrides(software, nil)
+}
+
+func buildSoftwarePlansWithOverrides(software []schema.Software, overrides map[string]string) []softwarePlan {
 	seen := make(map[string]bool)
+	normalizedOverrides := make(map[string]string, len(overrides))
+	for name, packageName := range overrides {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" && validLinuxPackageName(packageName) {
+			normalizedOverrides[name] = packageName
+		}
+	}
+
 	plans := make([]softwarePlan, 0, len(software))
-
 	for _, item := range software {
-		identity := identifySoftware(item.Name)
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		nameKey := strings.ToLower(name)
 
+		if packageName, exists := normalizedOverrides[nameKey]; exists {
+			if seen[nameKey] {
+				continue
+			}
+			seen[nameKey] = true
+			plans = append(plans, softwarePlan{
+				Identity:     name,
+				Strategy:     "NATIVE_REINSTALL",
+				InstallBlock: "__APT__",
+				PackageName:  packageName,
+				Reason:       name + " -> reviewed Linux package " + packageName,
+			})
+			continue
+		}
+
+		identity := identifySoftware(name)
 		if identity == "" {
+			// An explicitly included but unmapped program must remain visible in
+			// the report instead of disappearing silently from the plan.
+			if seen[nameKey] {
+				continue
+			}
+			seen[nameKey] = true
+			plans = append(plans, softwarePlan{
+				Identity:     name,
+				Strategy:     "MANUAL_INSTALL",
+				InstallBlock: "__MANUAL__",
+				Reason:       name + " -> manual review required",
+			})
 			continue
 		}
 
 		if seen[identity] {
 			continue
 		}
-
 		seen[identity] = true
-		plans = append(plans, planForIdentity(identity, item.Name))
+		plans = append(plans, planForIdentity(identity, name))
 	}
 
 	sort.Slice(plans, func(i, j int) bool {
-		return plans[i].Identity < plans[j].Identity
+		return strings.ToLower(plans[i].Identity) < strings.ToLower(plans[j].Identity)
 	})
 
 	return plans
+}
+
+func validLinuxPackageName(name string) bool {
+	if name == "" || !((name[0] >= 'A' && name[0] <= 'Z') || (name[0] >= 'a' && name[0] <= 'z') || (name[0] >= '0' && name[0] <= '9')) {
+		return false
+	}
+	for _, char := range name {
+		if !((char >= 'A' && char <= 'Z') ||
+			(char >= 'a' && char <= 'z') ||
+			(char >= '0' && char <= '9') ||
+			char == '.' || char == '+' || char == ':' || char == '_' || char == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func identifySoftware(name string) string {
@@ -711,5 +781,12 @@ func uniqueStrings(values []string) []string {
 }
 
 func shellScriptQuote(value string) string {
-	return strings.ReplaceAll(value, `"`, `\"`)
+	// Values inserted between double quotes in generated Bash. Escape all
+	// characters that can trigger expansion or terminate the quoted string.
+	return strings.NewReplacer(
+		"\\", "\\\\",
+		"$", "\\$",
+		"`", "\\`",
+		`"`, `\\"`,
+	).Replace(value)
 }

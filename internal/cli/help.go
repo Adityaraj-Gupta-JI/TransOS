@@ -55,6 +55,15 @@ func PrintInteractiveHelp() {
 	fmt.Println("  config            View or change mode, extraction depth, and categories")
 
 	fmt.Println()
+	fmt.Println(Cyan + Bold + "Migration planning" + Reset)
+	fmt.Println("  plan create       Create a review plan; software starts pending")
+	fmt.Println("  plan show         List include/exclude decisions and package mappings")
+	fmt.Println("  plan include      Approve a software candidate")
+	fmt.Println("  plan exclude      Exclude a software candidate")
+	fmt.Println("  plan map          Map software to an apt/dnf package name")
+	fmt.Println("  plan add/remove   Manage manually added candidates")
+
+	fmt.Println()
 	fmt.Println(Cyan + Bold + "Inspection" + Reset)
 
 	fmt.Println(
@@ -134,6 +143,10 @@ func PrintHelp() {
 
 	fmt.Println(
 		"  transos config                View or change persistent configuration",
+	)
+
+	fmt.Println(
+		"  transos plan <action>         Create/review decisions for software migration",
 	)
 
 	fmt.Println(
