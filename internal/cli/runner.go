@@ -70,6 +70,10 @@ func Run(args []string) int {
 	}
 
 	switch command {
+	case "guide", "next":
+		printMigrationGuide(readSessionState())
+		return 0
+
 	case "extract":
 		return runExtract()
 
@@ -210,7 +214,10 @@ func runInteractiveShell() int {
 			return 0
 		}
 
-		if !handleWorkspaceInput(splitCommandLine(commandLine)) {
+		parsed := splitCommandLine(commandLine)
+		if len(parsed) == 0 {
+			fmt.Println("  Invalid command: check for unmatched quotation marks.")
+		} else if !handleWorkspaceInput(parsed) {
 			runInteractiveCommand(commandLine)
 		}
 
@@ -224,7 +231,7 @@ func interactivePrompt() string {
 		location = strings.ToLower(strings.ReplaceAll(workspaces[activeWorkspace].name, " & ", "-"))
 		location = strings.ReplaceAll(location, " ", "-")
 	}
-	return uiAccent("transos") + " / " + location + " > "
+	return "\n  " + uiPaint("1;36", "TRANSOS") + uiPaint("2", " ["+location+"]") + uiPaint("36", " :: ")
 }
 
 func runInteractiveCommand(commandLine string) {
@@ -232,29 +239,6 @@ func runInteractiveCommand(commandLine string) {
 
 	if len(args) == 0 {
 		return
-	}
-
-	switch strings.ToLower(args[0]) {
-	case "1":
-		args[0] = "extract"
-	case "2":
-		args[0] = "validate"
-	case "3":
-		args[0] = "preview"
-	case "4":
-		args[0] = "inject"
-	case "5":
-		args[0] = "run-all"
-	case "6":
-		args[0] = "rollback"
-	case "7":
-		args[0] = "outputs"
-	case "8":
-		args[0] = "help"
-	case "9":
-		args[0] = "status"
-	case "10":
-		args[0] = "about"
 	}
 
 	command := strings.ToLower(args[0])
@@ -273,6 +257,9 @@ func runInteractiveCommand(commandLine string) {
 	}
 
 	switch command {
+	case "guide", "next":
+		printMigrationGuide(readSessionState())
+
 	case "extract":
 		runExtract()
 
@@ -414,6 +401,9 @@ func splitCommandLine(line string) []string {
 	if escaped {
 		token.WriteRune('\\')
 		tokenStarted = true
+	}
+	if quote != 0 {
+		return nil // Unclosed quote: never execute a partial command.
 	}
 	flush()
 	return args

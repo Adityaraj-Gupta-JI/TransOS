@@ -94,6 +94,10 @@ transos-stage6a-help.patch
 transos-stage6b-workspaces.patch
 transos-stage6c-fixed.patch
 transos-stage6c-ui.patch
+transos-stage6d-cli-polish.patch
+transos-stage6d-visual-upgrade.patch
+transos-stage6e-guided-workflow.patch
+transos-stage6f-help-layout.patch
 
 /migration_plan.json
 

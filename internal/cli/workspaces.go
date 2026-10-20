@@ -17,7 +17,7 @@ var workspaces = []workspace{
 	{"Package Generation", "Generate and validate portable artifacts", []workspaceAction{{"Generate artifacts", "inject", "Generate Linux configuration bundle"}, {"Seal bundle", "package seal", "Record artifact checksums"}, {"Verify bundle", "package verify", "Check integrity"}, {"Inspect bundle", "package inspect", "Read manifest contents"}}},
 	{"Linux Deployment", "Review and apply on the target Linux machine", []workspaceAction{{"Target check", "package target-check", "Check Linux compatibility"}, {"Execution plan", "package execution-plan", "Read-only deployment preview"}, {"Stage help", "help package stage", "Learn staging syntax and approval"}, {"Apply help", "help package apply", "Learn safe application syntax"}}},
 	{"Recovery & Verification", "Verify changes and understand recovery", []workspaceAction{{"Verify applied help", "help package verify-applied", "Inspect applied-state verification"}, {"Restore help", "help package restore", "Review Linux restore requirements"}, {"Rollback checkpoints", "rollback list", "List source-side checkpoints"}, {"Generated outputs", "outputs", "Inspect source-generated artifacts"}}},
-	{"Diagnostics & Help", "Inspect status and command documentation", []workspaceAction{{"Current status", "status", "Show local migration state"}, {"Command guide", "help", "Browse all commands"}, {"Package guide", "help package", "Explore package actions"}, {"Version", "version", "Display installed version"}}},
+	{"Diagnostics & Help", "Inspect status and command documentation", []workspaceAction{{"Migration guide", "guide", "Show safe next steps"}, {"Current status", "status", "Show local migration state"}, {"Command guide", "help", "Browse all commands"}, {"Package guide", "help package", "Explore package actions"}, {"Version", "version", "Display installed version"}}},
 }
 
 var activeWorkspace = -1
@@ -25,43 +25,51 @@ var activeWorkspace = -1
 func renderWorkspaceHome() {
 	uiHeader("MIGRATION CONSOLE", "Windows source  >  portable bundle  >  Linux target")
 	state := readSessionState()
-	profile := "NOT FOUND"
+	profile := "MISSING"
 	if state.profileValid {
 		profile = "VALID"
 	} else if state.profileReady {
-		profile = "REVIEW"
+		profile = "NEEDS REVIEW"
 	}
 	output := "NOT GENERATED"
 	if state.outputReady {
-		output = "PRESENT / UNVERIFIED"
+		output = "PRESENT (not verified)"
 	}
-	checkpoint := "NONE"
+	checkpoints := "NONE DETECTED"
 	if state.walReady {
-		checkpoint = "AVAILABLE"
+		checkpoints = "WAL PRESENT"
 	}
-	uiSection("CURRENT WORKSPACE")
-	uiKeyValue("Source profile", profile)
+	uiSection("Session overview")
+	uiKeyValue("Source", "Windows")
+	uiKeyValue("Profile", profile)
 	uiKeyValue("Generated output", output)
-	uiKeyValue("Checkpoints", checkpoint)
-	fmt.Println("  Note: file presence does not establish package integrity.")
-	uiSection("WORKSPACES")
+	uiKeyValue("Recovery log", checkpoints)
+	uiNote("Output presence is not proof of integrity or Linux compatibility.")
+	uiSection("Suggested next step")
+	for _, line := range uiWrap(migrationNextStep(state), uiWidth()-6) {
+		fmt.Println("  " + line)
+	}
+	uiSection("Migration journey")
+	fmt.Println("  01 Capture  >  02 Plan  >  03 Generate")
+	fmt.Println("  04 Deploy   >  05 Verify / Recover")
+	uiSection("Select a workspace")
 	for i, w := range workspaces {
 		uiMenuItem(i+1, w.name, w.description)
 	}
-	uiFooter("[1-6] open workspace  |  help [topic]  |  status  |  exit")
-	fmt.Println("  Direct CLI commands are accepted from every workspace.")
+	uiFooter("NAVIGATION: 1-6 open | guide | help | q exit")
+	fmt.Println("  " + uiPaint("2", "You may also enter a TransOS command directly."))
 }
 
 func renderWorkspace(index int) {
 	w := workspaces[index]
 	uiHeader(fmt.Sprintf("%02d / %s", index+1, strings.ToUpper(w.name)), w.description)
-	uiSection("ACTIONS")
+	uiSection("Available actions")
 	for i, a := range w.actions {
 		uiMenuItem(i+1, a.label, a.explanation)
 	}
-	uiFooter("[1-4] run action  |  back  |  home  |  help [topic]  |  exit")
+	uiFooter(fmt.Sprintf("NAVIGATION: 1-%d select action  |  back  |  home  |  help [command]  |  q", len(w.actions)))
 	if index == 3 || index == 4 {
-		fmt.Println("  Deployment and restore require explicit approval; read help first.")
+		uiNote("Staging, application and restore require explicit approval. Review their help before proceeding.")
 	}
 }
 

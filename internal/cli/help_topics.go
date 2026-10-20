@@ -35,6 +35,17 @@ var packageHelp = map[string]string{
 	"restore":        "transos package restore --approve <recovery>  — restore prior user configuration on Linux",
 }
 
+// printHelpText keeps long command signatures readable in narrow terminals.
+func printHelpText(prefix, value string) {
+	width := uiWidth() - 6
+	for i, line := range uiWrap(value, width) {
+		if i == 0 && prefix != "" {
+			fmt.Println("  " + prefix)
+		}
+		fmt.Println("  " + line)
+	}
+}
+
 func printTopicHelp(args []string) int {
 	if len(args) == 0 {
 		printCategorizedHelp()
@@ -42,58 +53,88 @@ func printTopicHelp(args []string) int {
 	}
 	topic := strings.ToLower(strings.TrimSpace(args[0]))
 	if topic == "package" && len(args) > 1 {
-		if usage, ok := packageHelp[strings.ToLower(args[1])]; ok {
-			fmt.Print("\nPACKAGE / " + strings.ToUpper(args[1]) + "\n\n  " + usage + "\n\n  See also: transos help package\n")
-			return 0
+		action := strings.ToLower(args[1])
+		usage, ok := packageHelp[action]
+		if !ok {
+			fmt.Printf("Unknown package action %q. Try: transos help package\n", args[1])
+			return 2
 		}
-		fmt.Printf("Unknown package action %q. Try: transos help package\n", args[1])
-		return 2
+		uiHeader("PACKAGE / "+strings.ToUpper(action), "Command syntax and safety notes")
+		uiSection("Usage")
+		printHelpText("", strings.Split(usage, "  — ")[0])
+		if parts := strings.SplitN(usage, "  — ", 2); len(parts) == 2 {
+			uiSection("Behavior")
+			printHelpText("", parts[1])
+		}
+		if action == "apply" || action == "stage" || action == "restore" {
+			uiNote("Requires explicit --approve. Review paths and the execution plan first. No software packages are installed automatically.")
+		}
+		uiFooter("See all actions: transos help package")
+		return 0
 	}
 	if topic == "package" {
-		fmt.Print("\nPACKAGE COMMANDS\n")
+		uiHeader("PACKAGE COMMANDS", "Source bundle verification and Linux deployment")
 		for _, name := range []string{"seal", "verify", "inspect", "target-check", "execution-plan", "stage", "apply", "verify-applied", "restore"} {
-			fmt.Printf("  %s\n", packageHelp[name])
+			parts := strings.SplitN(packageHelp[name], "  — ", 2)
+			uiSection(name)
+			printHelpText("", parts[0])
+			if len(parts) > 1 {
+				printHelpText("", parts[1])
+			}
 		}
-		fmt.Print("\nUse: transos help package <action>\n")
+		uiFooter("Details: transos help package <action>")
 		return 0
 	}
 	for _, t := range helpTopics {
 		if t.name == topic {
-			fmt.Printf("\n%s — %s\n\nUsage:\n  %s\n\n%s\n\nNext: %s\n\n", strings.ToUpper(t.name), t.summary, t.usage, t.details, t.next)
+			uiHeader(strings.ToUpper(t.name), t.summary)
+			uiSection("Usage")
+			printHelpText("", t.usage)
+			uiSection("Description")
+			printHelpText("", t.details)
+			uiFooter("Next: " + t.next)
 			return 0
 		}
+	}
+	if topic == "guide" || topic == "next" {
+		uiHeader("GUIDED WORKFLOW", "Read-only migration guidance")
+		uiSection("Usage")
+		printHelpText("", "transos guide  |  transos next")
+		uiNote("Shows current evidence and suggested next steps. Does not run migration operations.")
+		return 0
 	}
 	fmt.Printf("Unknown help topic %q. Use 'transos help' to list categories.\n", topic)
 	return 2
 }
 
 func printCategorizedHelp() {
-	fmt.Print("\nTRANSOS  /  COMMAND GUIDE\n")
-	fmt.Print("  Interactive: transos          Direct: transos <command> [flags]\n")
-	fmt.Print("  Help:        transos help <command>  or  transos <command> --help\n")
+	uiHeader("COMMAND GUIDE", "Interactive: transos | Direct: transos <command> [args] | Help: transos help <command>")
 	groups := []struct {
 		title string
 		names []string
 	}{
-		{"01  SOURCE & SETTINGS", []string{"config", "extract", "validate", "preview"}},
-		{"02  MIGRATION WORKFLOW", []string{"plan", "preflight", "inject", "run-all"}},
-		{"03  LINUX DEPLOYMENT", []string{"package"}},
-		{"04  RECOVERY & INSPECTION", []string{"rollback", "status", "outputs"}},
-		{"05  UTILITIES", []string{"version"}},
+		{"01 SOURCE & SETTINGS", []string{"config", "extract", "validate", "preview"}},
+		{"02 MIGRATION WORKFLOW", []string{"plan", "preflight", "inject", "run-all"}},
+		{"03 LINUX DEPLOYMENT", []string{"package"}},
+		{"04 RECOVERY & INSPECTION", []string{"rollback", "status", "outputs"}},
+		{"05 UTILITIES", []string{"version"}},
 	}
 	for _, g := range groups {
-		fmt.Printf("\n%s\n", g.title)
+		uiSection(g.title)
 		for _, name := range g.names {
 			for _, t := range helpTopics {
 				if t.name == name {
-					fmt.Printf("  %-12s %s\n", t.name, t.summary)
+					fmt.Println("  " + uiPaint("1;36", t.name))
+					for _, line := range uiWrap(t.summary, uiWidth()-8) {
+						fmt.Println("      " + line)
+					}
 					break
 				}
 			}
 		}
 	}
-	fmt.Print("\nSuggested flow: config → extract → validate → plan → preflight → inject → package seal → package verify\n")
-	fmt.Print("Linux target: package target-check → execution-plan → stage → apply → verify-applied\n")
-	fmt.Print("Recovery: package restore (Linux) | rollback (generated source output)\n")
-	fmt.Print("\nType 'help package' or 'help plan' for more detail. No installation is automatic.\n")
+	uiSection("Read-only guidance")
+	printHelpText("", "transos guide | transos next")
+	uiNote("Deployment requires Linux and explicit approval. Generated files are not automatically installed.")
+	uiFooter("Explore: transos help package | transos help plan")
 }
