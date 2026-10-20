@@ -98,6 +98,8 @@ transos-stage6d-cli-polish.patch
 transos-stage6d-visual-upgrade.patch
 transos-stage6e-guided-workflow.patch
 transos-stage6f-help-layout.patch
+TransOS_Stage_6G_Part_1_RESHARED.patch
+transos-stage6g-hardening-part2.patch
 
 /migration_plan.json
 

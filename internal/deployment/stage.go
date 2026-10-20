@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,35 @@ import (
 	"runtime"
 	"strings"
 )
+
+// rejectSymlinkAncestors checks every existing path component. Staging must not
+// traverse symlinked source or destination directories, even if the final path
+// itself does not exist. This is a preflight check, not a defense against a
+// concurrent attacker replacing directories during the copy.
+func rejectSymlinkAncestors(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	for current := abs; ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("symlink in staging path: %s", current)
+			}
+			if current != abs && !info.IsDir() {
+				return fmt.Errorf("non-directory staging ancestor: %s", current)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+	}
+	return nil
+}
 
 // Stage copies verified artifacts to a new private directory for manual review.
 // It never executes scripts, edits shell startup files, or invokes a package manager.
@@ -44,6 +74,12 @@ func stageForHost(bundleDir, destination string, approved bool, hostOS string) e
 	}
 	if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
 		return fmt.Errorf("destination must not be inside the source bundle")
+	}
+	if err := rejectSymlinkAncestors(bundleAbs); err != nil {
+		return err
+	}
+	if err := rejectSymlinkAncestors(destAbs); err != nil {
+		return err
 	}
 	verification, err := Verify(bundleAbs)
 	if err != nil {

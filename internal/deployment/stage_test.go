@@ -70,3 +70,31 @@ func TestStageRejectsTamperingAndNestedDestination(t *testing.T) {
 		t.Fatal("created directory on invalid source")
 	}
 }
+
+func TestStageRejectsSymlinkedParentWithoutCreatingDestination(t *testing.T) {
+	src := testBundle(t)
+	realParent := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(realParent, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	dst := filepath.Join(alias, "stage")
+	if err := stageForHost(src, dst, true, "linux"); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink parent rejection, got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(realParent, "stage")); !os.IsNotExist(err) {
+		t.Fatalf("destination created despite rejection: %v", err)
+	}
+}
+
+func TestStageRejectsSymlinkedBundleDirectory(t *testing.T) {
+	src := testBundle(t)
+	alias := filepath.Join(t.TempDir(), "bundle-alias")
+	if err := os.Symlink(src, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	dst := filepath.Join(t.TempDir(), "stage")
+	if err := stageForHost(alias, dst, true, "linux"); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink bundle rejection, got %v", err)
+	}
+}

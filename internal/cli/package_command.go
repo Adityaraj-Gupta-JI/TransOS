@@ -9,7 +9,8 @@ import (
 
 func runPackage(args []string) int {
 	if len(args) < 1 || len(args) > 5 {
-		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage> [output_dir]")
+		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage|apply|verify-applied|restore> ...")
+		fmt.Println("Run: transos help package")
 		return 2
 	}
 	if strings.EqualFold(args[0], "apply") {
@@ -26,6 +27,7 @@ func runPackage(args []string) int {
 	}
 	if strings.EqualFold(args[0], "verify-applied") {
 		if len(args) != 2 {
+			fmt.Println("Usage: transos package verify-applied <recovery_dir>")
 			return 2
 		}
 		if err := deployment.VerifyApplied(args[1]); err != nil {
@@ -37,6 +39,7 @@ func runPackage(args []string) int {
 	}
 	if strings.EqualFold(args[0], "restore") {
 		if len(args) != 3 || args[1] != "--approve" {
+			fmt.Println("Usage: transos package restore --approve <recovery_dir>")
 			return 2
 		}
 		if err := deployment.RestoreUserConfig(args[2], true); err != nil {
@@ -63,13 +66,14 @@ func runPackage(args []string) int {
 		return 0
 	}
 	if len(args) > 2 {
-		fmt.Println("Unexpected arguments")
+		fmt.Println("Unexpected arguments. Run: transos help package")
 		return 2
 	}
 	dir := injector.DefaultOutputDir
 	if len(args) == 2 {
 		dir = strings.TrimSpace(args[1])
 		if dir == "" {
+			fmt.Println("Bundle directory must not be empty. Run: transos help package")
 			return 2
 		}
 	}
@@ -153,7 +157,8 @@ func runPackage(args []string) int {
 		fmt.Println("Inspect does not verify file contents; run package verify.")
 		return 0
 	default:
-		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage> [output_dir]")
+		fmt.Println("Usage: transos package <seal|verify|inspect|target-check|execution-plan|stage|apply|verify-applied|restore> ...")
+		fmt.Println("Run: transos help package")
 		return 2
 	}
 }

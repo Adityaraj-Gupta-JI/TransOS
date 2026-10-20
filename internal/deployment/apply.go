@@ -31,6 +31,40 @@ type ApplyRecord struct {
 }
 
 func checksum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
+
+// readPrivateRecoveryFile rejects symlinks and publicly readable recovery
+// records/backups. Recovery data can contain secrets from the original shell.
+// These checks are preflight checks, not protection from concurrent renames.
+func readPrivateRecoveryFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("unsafe recovery file (not regular): %s", path)
+	}
+	if runtime.GOOS == "linux" && info.Mode().Perm()&0077 != 0 {
+		return nil, fmt.Errorf("unsafe recovery file permissions: %s", path)
+	}
+	return os.ReadFile(path)
+}
+
+// checkRecoveryDir validates the recovery directory and all its ancestors.
+// An attacker-controlled symlink must not redirect backup or record reads.
+func checkRecoveryDir(recovery string) error {
+	if err := rejectSymlinkAncestors(recovery); err != nil {
+		return err
+	}
+	info, err := os.Lstat(recovery)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || (runtime.GOOS == "linux" && info.Mode().Perm()&0077 != 0) {
+		return fmt.Errorf("unsafe recovery directory: %s", recovery)
+	}
+	return nil
+}
+
 func checkRegularOrMissing(path string) (bool, os.FileMode, []byte, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -152,14 +186,7 @@ func applyForHost(bundle, home, recovery string, approved bool, host string) err
 	if bundle == "" || home == "" || recovery == "" {
 		return fmt.Errorf("bundle, home, and recovery paths required")
 	}
-	v, err := Verify(bundle)
-	if err != nil {
-		return err
-	}
-	if !v.Valid() {
-		return fmt.Errorf("bundle integrity failure: %v", v.Problems)
-	}
-	home, err = filepath.Abs(home)
+	home, err := filepath.Abs(home)
 	if err != nil {
 		return err
 	}
@@ -171,8 +198,18 @@ func applyForHost(bundle, home, recovery string, approved bool, host string) err
 	if err != nil {
 		return err
 	}
+	for _, path := range []string{bundle, home, recovery} {
+		if err := rejectSymlinkAncestors(path); err != nil {
+			return err
+		}
+	}
 	if recovery == home || recovery == bundle {
 		return fmt.Errorf("unsafe recovery location")
+	}
+	// Never place recovery state inside the source bundle. It would make the
+	// bundle mutable and risks exposing saved user configuration.
+	if rel, e := filepath.Rel(bundle, recovery); e == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
+		return fmt.Errorf("recovery must be outside source bundle")
 	}
 	if rel, e := filepath.Rel(home, recovery); e == nil && (rel == "." || rel == ".." || !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
 		return fmt.Errorf("recovery must be outside target home")
@@ -181,6 +218,13 @@ func applyForHost(bundle, home, recovery string, approved bool, host string) err
 		return fmt.Errorf("recovery directory already exists")
 	} else if !os.IsNotExist(err) {
 		return err
+	}
+	v, err := Verify(bundle)
+	if err != nil {
+		return err
+	}
+	if !v.Valid() {
+		return fmt.Errorf("bundle integrity failure: %v", v.Problems)
 	}
 	paths, contents, err := plannedFiles(bundle, home)
 	if err != nil {
@@ -237,9 +281,24 @@ func applyForHost(bundle, home, recovery string, approved bool, host string) err
 	}
 	return nil
 }
+func validDigest(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func loadRecord(recovery string) (ApplyRecord, error) {
 	var r ApplyRecord
-	b, e := os.ReadFile(filepath.Join(recovery, "record.json"))
+	if err := checkRecoveryDir(recovery); err != nil {
+		return r, err
+	}
+	b, e := readPrivateRecoveryFile(filepath.Join(recovery, "record.json"))
 	if e != nil {
 		return r, e
 	}
@@ -247,13 +306,16 @@ func loadRecord(recovery string) (ApplyRecord, error) {
 	if e != nil {
 		return r, e
 	}
-	if r.Version != 1 || len(r.Files) != 3 || r.Home == "" {
+	if r.Version != 1 || len(r.Files) != 3 || r.Home == "" || !filepath.IsAbs(r.Home) || filepath.Clean(r.Home) != r.Home {
 		return r, fmt.Errorf("invalid recovery record")
+	}
+	if err := rejectSymlinkAncestors(r.Home); err != nil {
+		return r, err
 	}
 	expected := []string{filepath.Join(r.Home, ".config", "transos", "transos_env.conf"), filepath.Join(r.Home, ".bashrc"), filepath.Join(r.Home, ".zshrc")}
 	for i, f := range r.Files {
-		if f.Path != expected[i] {
-			return r, fmt.Errorf("invalid recovery target: %s", f.Path)
+		if f.Path != expected[i] || !validDigest(f.Original) || !validDigest(f.Applied) || f.Mode&^uint32(0777) != 0 {
+			return r, fmt.Errorf("invalid recovery target or metadata: %s", f.Path)
 		}
 		if err := secureParents(r.Home, f.Path); err != nil {
 			return r, err
@@ -267,11 +329,11 @@ func VerifyApplied(recovery string) error {
 		return err
 	}
 	for _, f := range r.Files {
-		_, _, b, e := checkRegularOrMissing(f.Path)
+		exists, _, b, e := checkRegularOrMissing(f.Path)
 		if e != nil {
 			return e
 		}
-		if checksum(b) != f.Applied {
+		if !exists || checksum(b) != f.Applied {
 			return fmt.Errorf("applied configuration differs: %s", f.Path)
 		}
 	}
@@ -282,10 +344,14 @@ func VerifyApplied(recovery string) error {
 // RestoreUserConfig can also recover a partially completed application.
 // It refuses any file that differs from both the saved original and applied hashes.
 func RestoreUserConfig(recovery string, approved bool) error {
+	return restoreForHost(recovery, approved, runtime.GOOS)
+}
+
+func restoreForHost(recovery string, approved bool, host string) error {
 	if !approved {
 		return fmt.Errorf("explicit approval required")
 	}
-	if runtime.GOOS != "linux" {
+	if host != "linux" {
 		return fmt.Errorf("restore is Linux-only")
 	}
 	r, err := loadRecord(recovery)
@@ -305,7 +371,7 @@ func RestoreUserConfig(recovery string, approved bool) error {
 			return fmt.Errorf("file changed outside TransOS: %s", f.Path)
 		}
 		if f.Existed {
-			b, e := os.ReadFile(filepath.Join(recovery, fmt.Sprintf("original-%d", i)))
+			b, e := readPrivateRecoveryFile(filepath.Join(recovery, fmt.Sprintf("original-%d", i)))
 			if e != nil {
 				return e
 			}
@@ -323,6 +389,19 @@ func RestoreUserConfig(recovery string, approved bool) error {
 	}
 	for i, f := range r.Files {
 		if !needsRestore[i] {
+			continue
+		}
+		if err := secureParents(r.Home, f.Path); err != nil {
+			return err
+		}
+		exists, _, current, err := checkRegularOrMissing(f.Path)
+		if err != nil {
+			return err
+		}
+		if checksum(current) != f.Applied && checksum(current) != f.Original {
+			return fmt.Errorf("target changed during restore: %s", f.Path)
+		}
+		if !f.Existed && !exists {
 			continue
 		}
 		if f.Existed {
