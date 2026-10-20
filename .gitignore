@@ -1,112 +1,142 @@
 # ============================================================
-# TransOS - Git Ignore Policy
+# TransOS - Repository Ignore Policy
+# ============================================================
+#
+# Purpose:
+#   Keep source code, tests, documentation, and reproducible
+#   project assets in Git while excluding generated binaries,
+#   machine-specific configuration, migration output, and
+#   temporary development artifacts.
+#
+# Notes:
+#   - Paths beginning with "/" are relative to the repo root.
+#   - Ignoring a file does not delete it from disk.
+#   - Files already tracked by Git remain tracked.
+#   - Never commit real user profiles, secrets, or WAL backups.
+#
 # ============================================================
 
+
 # ------------------------------------------------------------
-# Build artifacts
+# 1. Compiled binaries and build output
 # ------------------------------------------------------------
 
+# Default Go build output on Linux/macOS
 /transos
+
+# Windows executables and generic compiled outputs
 *.exe
 *.out
+
+# Build and distribution directories
 /bin/
 /build/
 /dist/
 
+# Cross-compiled release-test binaries
+/transos-linux-amd64
+/transos-linux-arm64
+
+
 # ------------------------------------------------------------
-# Local user configuration
+# 2. Machine-specific configuration and extracted profiles
+# ------------------------------------------------------------
+
+# Local TransOS configuration
 /transos_config.json
 
-# Generated migration profiles
-# ------------------------------------------------------------
-
+# Extracted user environment and generated configuration
 /migration_profile.json
 /transos_env.conf
 
+# Generated migration plan
+/migration_plan.json
+
+
 # ------------------------------------------------------------
-# Generated migration output
+# 3. Generated migration packages and output
 # ------------------------------------------------------------
 
+# May contain scripts, manifests, backups, and user data
 /target_output/
 
+
 # ------------------------------------------------------------
-# Runtime / transaction data
+# 4. Transaction logs, backups, and runtime diagnostics
 # ------------------------------------------------------------
 
+# Write-ahead logs and associated recovery backups
 *.wal
 *.wal.bak
+
+# Runtime and diagnostic logs
 *.log
 
+
 # ------------------------------------------------------------
-# Local test artifacts
+# 5. Temporary tests and migration workspaces
 # ------------------------------------------------------------
 
 /test_output/
 /.test/
 /.tmp/
 /tmp/
-
-# ------------------------------------------------------------
-# Temporary migration workspaces
-# ------------------------------------------------------------
-
 /migration_workspace/
 
+# Historical local test-output snapshots
+/linux-current.txt
+/linux-plan-test-current.txt
+
+
 # ------------------------------------------------------------
-# Operating system metadata
+# 6. Go test, coverage, and profiling artifacts
+# ------------------------------------------------------------
+
+*.test
+*.prof
+
+/coverage.out
+/coverage.html
+
+
+# ------------------------------------------------------------
+# 7. Local patch handoffs and one-time helpers
+# ------------------------------------------------------------
+
+# Historical patches are not part of the source repository
+/*.patch
+/*.diff
+
+# Obsolete local patch-application helper
+/apply-transos-stage4.ps1
+
+
+# ------------------------------------------------------------
+# 8. Local release-audit script (temporary)
+# ------------------------------------------------------------
+
+# Keep this local until release tooling is moved to scripts/
+# and reviewed for inclusion in the repository.
+/transos-stage6h-release-audit.ps1
+
+
+# ------------------------------------------------------------
+# 9. Editor and IDE metadata
+# ------------------------------------------------------------
+
+.vscode/
+.idea/
+
+
+# ------------------------------------------------------------
+# 10. Operating system metadata
 # ------------------------------------------------------------
 
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ------------------------------------------------------------
-# IDE / editor metadata
-# ------------------------------------------------------------
 
-.vscode/
-.idea/
-
-# ------------------------------------------------------------
-# Go tooling
-# ------------------------------------------------------------
-
-*.test
-*.prof
-coverage.out
-coverage.html
-
-#Patches for feature updates
-
-transos-stage1.patch
-transos-stage2.patch
-transos-stage3.patch
-transos-stage4.patch
-transos-stage4-fixed.patch
-transos-stage4-core.patch
-transos-stage4-from-your-zip.patch
-transos-stage5a.patch
-transos-stage5b.patch
-transos-stage5c.patch
-transos-stage5d.patch
-transos-stage5ef.patch
-transos-stage6a-help.patch
-transos-stage6b-workspaces.patch
-transos-stage6c-fixed.patch
-transos-stage6c-ui.patch
-transos-stage6d-cli-polish.patch
-transos-stage6d-visual-upgrade.patch
-transos-stage6e-guided-workflow.patch
-transos-stage6f-help-layout.patch
-TransOS_Stage_6G_Part_1_RESHARED.patch
-transos-stage6g-hardening-part2.patch
-TransOS_Stage6H_Crossbuild_Fix_RESHARED.patch
-transos-stage6h-release-audit.ps1
-transos-stage6h-status-truthfulness.patch
-
-
-/migration_plan.json
-
-apply-transos-stage4.ps1
-linux-current.txt
-linux-plan-test-current.txt
+# ============================================================
+# End of TransOS .gitignore
+# ============================================================
