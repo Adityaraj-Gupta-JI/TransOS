@@ -100,6 +100,10 @@ transos-stage6e-guided-workflow.patch
 transos-stage6f-help-layout.patch
 TransOS_Stage_6G_Part_1_RESHARED.patch
 transos-stage6g-hardening-part2.patch
+TransOS_Stage6H_Crossbuild_Fix_RESHARED.patch
+transos-stage6h-release-audit.ps1
+transos-stage6h-status-truthfulness.patch
+
 
 /migration_plan.json
 

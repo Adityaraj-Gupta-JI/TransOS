@@ -475,8 +475,8 @@ func printInteractiveStatus() {
 	if state.outputReady {
 		printStateRow(
 			"Package",
-			"GENERATED • target_output/",
-			Green,
+			"PRESENT • target_output/ (integrity not verified)",
+			Yellow,
 		)
 	} else {
 		printStateRow(
@@ -523,11 +523,11 @@ func printPipeline(state sessionState) {
 	}
 
 	if state.outputReady {
-		packageStatus = Green + "✓" + Reset
+		packageStatus = Yellow + "~" + Reset
 	}
 
 	fmt.Printf(
-		"  %s EXTRACT  %s  %s VALIDATE  %s  %s PACKAGE\n",
+		"  %s EXTRACT  %s  %s VALIDATE  %s  %s GENERATE\n",
 		extractStatus,
 		Cyan+"→"+Reset,
 		validateStatus,
@@ -545,6 +545,8 @@ func printPipeline(state sessionState) {
 		Cyan+"·"+Reset,
 		Gray+"○"+Reset,
 	)
+	fmt.Println("  ~ Generated output only; seal and verify integrity separately.")
+	fmt.Println("  ○ Plan approval, Linux deployment and verification are not inferred here.")
 }
 
 func printStateRow(label, value, colorCode string) {
